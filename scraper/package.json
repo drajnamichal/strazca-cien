@@ -1,0 +1,15 @@
+{
+  "name": "strazca-cien-scraper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:unit": "node --test test/extract.test.mjs test/canary.test.mjs",
+    "canary": "node canary.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.64.1",
+    "web-push": "3.6.7"
+  }
+}

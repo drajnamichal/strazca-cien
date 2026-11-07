@@ -1,0 +1,50 @@
+name: Kontrola cien
+
+# Spúšťa ho Cloudflare Worker (cron každých 5 h a hneď po pridaní produktu).
+# Vlastný `schedule` tu zámerne nie je: GitHub plánované behy mešká
+# a vo verejných repozitároch ich po 60 dňoch nečinnosti vypína.
+on:
+  workflow_dispatch:
+    inputs:
+      product_id:
+        description: 'ID produktu (prázdne = skontrolovať všetky)'
+        required: false
+        default: ''
+
+concurrency:
+  group: check-prices
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Oficiálny Playwright image – prehliadač je predinštalovaný, verzia musí sedieť s package.json
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
+    defaults:
+      run:
+        working-directory: scraper
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Inštalácia závislostí
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Unit testy extrakcie
+        run: npm run test:unit
+
+      - name: Kontrola cien
+        run: node check.mjs
+        env:
+          HOME: /root
+          API_URL: ${{ secrets.API_URL }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PRODUCT_ID: ${{ inputs.product_id }}

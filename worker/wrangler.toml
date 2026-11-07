@@ -1,0 +1,28 @@
+name = "strazca-cien"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# PWA sa servuje z rovnakého Workera (rovnaký origin, žiadny CORS)
+[assets]
+directory = "../pwa"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "strazca-cien"
+database_id = "DOPLN_ID_Z_wrangler_d1_create"
+migrations_dir = "migrations"
+
+# Každých 5 hodín spustí GitHub Actions scraper
+[triggers]
+crons = ["0 */5 * * *"]
+
+[vars]
+GITHUB_REPO = "tvoj-github-ucet/strazca-cien"
+GITHUB_REF = "main"
+VAPID_PUBLIC_KEY = "DOPLN_VEREJNY_VAPID_KLUC"
+
+# Tajomstvá (nastav cez `npx wrangler secret put ...`):
+#   API_TOKEN     – tvoj tajný kľúč do appky (používa ho aj scraper)
+#   GITHUB_TOKEN  – fine-grained PAT s právom Actions: Read and write na tento repozitár

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Strážca cien</title>
+  <meta name="description" content="Sledovanie cien produktov na slovenských a českých e-shopoch">
+  <meta name="theme-color" content="#EEF1F4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14181F" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Prvé spustenie: zadanie prístupového kľúča -->
+  <main id="setup" class="setup" hidden>
+    <h1 class="brand">Strážca cien</h1>
+    <span class="tag" aria-hidden="true">–12 %</span>
+    <form id="setup-form" class="stack">
+      <p class="muted" style="margin:0">Zadaj prístupový kľúč, ktorý si nastavil vo Workeri ako <code>API_TOKEN</code>. Uloží sa len v tomto zariadení.</p>
+      <label for="token">Prístupový kľúč</label>
+      <input id="token" type="password" autocomplete="current-password" required>
+      <button class="btn primary" type="submit">Otvoriť appku</button>
+      <p id="setup-error" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <div id="app" hidden>
+    <header class="top" id="top">
+      <div class="wrap">
+        <div class="top-row">
+          <div>
+            <h1 class="brand">Strážca cien</h1>
+            <p class="summary" id="summary"></p>
+          </div>
+          <button id="open-settings" class="icon-btn" type="button" aria-label="Nastavenia">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+          </button>
+        </div>
+
+        <form id="add-form" class="add">
+          <div class="field">
+            <svg class="field-icon" id="field-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+            <label for="add-input" class="visually-hidden">URL alebo názov produktu</label>
+            <input id="add-input" type="text" inputmode="url" autocomplete="off" enterkeyhint="go"
+                   placeholder="Odkaz na produkt alebo názov" required>
+            <button class="btn primary" type="submit">Sledovať</button>
+          </div>
+          <div class="add-row">
+            <fieldset class="market">
+              <legend class="visually-hidden">Trh pre hľadanie podľa názvu</legend>
+              <label><input type="radio" name="market" value="sk" checked><span>SK, €</span></label>
+              <label><input type="radio" name="market" value="cz"><span>CZ, Kč</span></label>
+            </fieldset>
+            <p class="hint" id="add-hint">Pri názve appka nájde najnižšiu cenu na Heureke a sleduje ju.</p>
+          </div>
+          <p id="add-error" class="error" role="alert"></p>
+        </form>
+      </div>
+    </header>
+
+    <main class="wrap" aria-labelledby="list-title">
+      <h2 id="list-title" class="visually-hidden">Sledované produkty</h2>
+      <ul id="skeleton" class="list skeleton" aria-hidden="true">
+        <li><div class="item"><span class="thumb"></span><span class="item-main"><span class="bar" style="width:80%"></span><span class="bar" style="width:45%"></span></span><span class="tag"></span></div></li>
+        <li><div class="item"><span class="thumb"></span><span class="item-main"><span class="bar" style="width:65%"></span><span class="bar" style="width:35%"></span></span><span class="tag"></span></div></li>
+        <li><div class="item"><span class="thumb"></span><span class="item-main"><span class="bar" style="width:72%"></span><span class="bar" style="width:50%"></span></span><span class="tag"></span></div></li>
+      </ul>
+      <ul id="list" class="list"></ul>
+      <div id="empty" class="empty-state" hidden>
+        <svg viewBox="0 0 120 64" aria-hidden="true">
+          <path d="M26 6h82a6 6 0 0 1 6 6v40a6 6 0 0 1-6 6H26L4 32Z" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="7 6" opacity=".35"/>
+          <circle cx="24" cy="32" r="4.5" fill="currentColor" opacity=".35"/>
+        </svg>
+        <p>Zatiaľ nič nesleduješ.</p>
+        <p>Vlož odkaz z e-shopu alebo napíš názov produktu. Napríklad:</p>
+        <div class="examples">
+          <button class="chip" type="button" data-example="Sony WH-1000XM5">Sony WH-1000XM5</button>
+          <button class="chip" type="button" data-example="iPhone 16 128GB">iPhone 16 128GB</button>
+          <button class="chip" type="button" data-example="LEGO Technic 42115">LEGO Technic 42115</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="detail" class="sheet" aria-labelledby="detail-name"></dialog>
+
+  <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+    <div class="sheet-head">
+      <h2 id="settings-title">Nastavenia</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Zavrieť">✕</button>
+    </div>
+    <div class="stack" style="margin-top:1rem">
+      <section class="setting">
+        <h3>Notifikácie o zmene ceny</h3>
+        <p id="push-state" class="muted"></p>
+        <button id="push-btn" class="btn primary" type="button">Zapnúť notifikácie</button>
+      </section>
+      <section class="setting">
+        <label class="check">
+          <input id="convert" type="checkbox">
+          <span>Zobraziť aj prepočet na druhú menu podľa kurzu ECB</span>
+        </label>
+      </section>
+      <section class="setting">
+        <h3>Kontrola cien</h3>
+        <p class="muted">Ceny sa kontrolujú automaticky každých 5 hodín.</p>
+        <button id="check-now" class="btn" type="button">Skontrolovať všetky teraz</button>
+        <p id="check-msg" class="muted" role="status" style="margin-top:.6rem"></p>
+      </section>
+      <section class="setting">
+        <button id="logout" class="btn ghost" type="button">Zmeniť prístupový kľúč</button>
+      </section>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
