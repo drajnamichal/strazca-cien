@@ -94,6 +94,26 @@ Potrebuješ účet na GitHube, bezplatný účet na Cloudflare a Node.js 20+.
   - *iPhone:* iOS zatiaľ nedovoľuje PWA byť v ponuke Zdieľať. Vytvor si v appke Skratky skratku: zapni *Zobraziť v hárku zdieľania* (typ vstupu URL a text), pridaj akciu *Otvoriť URL* s adresou `https://TVOJ-WORKER.workers.dev/?url=` a za ňu vlož *Vstup skratky*. Potom zdieľaš produkt cez túto skratku.
 - **Prepočet mien:** v nastaveniach zapneš zobrazenie ceny aj v druhej mene podľa kurzu ECB.
 
+## Scraper na vlastnom počítači (self-hosted runner)
+
+Heureka, Alza a ďalšie obchody blokujú požiadavky z dátových centier (vrátane serverov GitHub Actions). Preto *Kontrola cien* a *Kanárik* bežia na tvojom počítači s domácim pripojením. GitHub to poskytuje zadarmo. Testy pri pull requestoch bežia ďalej na GitHube.
+
+1. V repozitári: **Settings → Actions → Runners → New self-hosted runner**, zvoľ **macOS** a architektúru (Apple Silicon = ARM64).
+2. Spusti príkazy zo stránky (Download a Configure). Pri `./config.sh`:
+   - názov runnera môžeš nechať,
+   - na otázku **additional labels** zadaj `strazca-cien`,
+   - pracovný priečinok nechaj `_work`.
+3. Aby runner bežal stále na pozadí aj po reštarte:
+   ```bash
+   ./svc.sh install
+   ./svc.sh start
+   ```
+4. Over v **Settings → Actions → Runners**, že runner je **Idle** (zelený).
+
+Keď počítač spí, beh čaká vo fronte a spustí sa po prebudení. Aby kontroly chodili aj s vypnutým displejom: Systémové nastavenia → Batéria → Možnosti → *Zabrániť automatickému spánku na napájacom adaptéri, keď je displej vypnutý*. Notebook so zavretým vekom spí.
+
+Bezpečnosť: na self-hosted runneri spúšťaj len vlastné workflowy. Repozitár drž **privátny**, aby cudzí pull request nemohol spustiť kód na tvojom počítači.
+
 ## Kanárik: kontrola živých e-shopov
 
 Testy bežia nad lokálnymi kópiami stránok, ale e-shopy svoje stránky menia. Preto workflow *Kanárik* (`.github/workflows/canary.yml`) raz denne skontroluje známe produkty na skutočných obchodoch rovnakým kódom, aký používa appka, a overí, že cena aj mena dávajú zmysel.
