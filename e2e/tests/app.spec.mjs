@@ -1,7 +1,7 @@
 import { test, expect, TOKEN } from './fixtures.mjs';
 
 const row = (page, text) => page.getByRole('listitem').filter({ hasText: text });
-const addField = (page) => page.getByLabel('URL alebo názov produktu');
+const addField = (page) => page.getByLabel('Odkaz na produkt');
 
 test.describe('prvé spustenie', () => {
   test('nesprávny kľúč ukáže chybu, správny otvorí appku a zostane uložený', async ({ page, backend }) => {
@@ -38,11 +38,15 @@ test.describe('pridávanie produktov', () => {
     await expect(page.getByRole('listitem')).toHaveCount(0);
   });
 
-  test('príklad z prázdneho stavu sa ťuknutím vloží do poľa', async ({ app: { page } }) => {
+  test('názov namiesto odkazu ponúkne hľadanie na Heureke a nič nepridá', async ({ app: { page, backend } }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'iPhone 16 128GB' }).click();
-    await expect(addField(page)).toHaveValue('iPhone 16 128GB');
-    await expect(addField(page)).toBeFocused();
+    await addField(page).fill('Sony WH-1000XM5');
+    const link = page.getByRole('link', { name: 'Hľadať „Sony WH-1000XM5“ na Heureke' });
+    await expect(link).toHaveAttribute('href', 'https://www.heureka.sk/?h%5Bfraze%5D=Sony%20WH-1000XM5');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await page.getByRole('button', { name: 'Sledovať' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Vlož odkaz na produkt z e-shopu (začína sa https://).');
+    expect(backend.calls('POST', '/api/products')).toHaveLength(0);
   });
 
   test('odkaz na produkt sa pridá a čaká na zistenie ceny', async ({ app: { page, backend } }) => {
@@ -54,40 +58,32 @@ test.describe('pridávanie produktov', () => {
     await expect(row(page, 'www.alza.sk')).toContainText('Zisťujem cenu…');
     await expect(addField(page)).toHaveValue('');
     await expect(page.getByRole('status').filter({ hasText: 'Pridané' })).toBeVisible();
-    expect(backend.calls('POST', '/api/products')[0].body).toEqual({
-      input: 'https://www.alza.sk/sluchadla-d123.htm',
-      market: 'sk',
-    });
+    expect(backend.calls('POST', '/api/products')[0].body).toEqual({ input: 'https://www.alza.sk/sluchadla-d123.htm' });
   });
 
-  test('názov na CZ trhu sa pošle s trhom cz a cena sa doplní sama, keď ju scraper nájde', async ({
-    app: { page, backend },
-  }) => {
+  test('cena sa doplní sama, keď ju scraper nájde', async ({ app: { page, backend } }) => {
     await page.clock.install();
     await page.goto('/');
-    await page.getByRole('radio', { name: 'CZ, Kč' }).check();
-    await addField(page).fill('iPhone 15 128GB');
+    await addField(page).fill('https://www.alza.cz/iphone-15');
     await page.getByRole('button', { name: 'Sledovať' }).click();
-
-    await expect(row(page, 'iPhone 15 128GB')).toContainText('Hľadám najnižšiu cenu…');
-    expect(backend.calls('POST', '/api/products')[0].body.market).toBe('cz');
+    await expect(row(page, 'www.alza.cz')).toContainText('Zisťujem cenu…');
 
     const id = backend.products[0].id;
-    backend.resolve(id, 16990, { name: 'Apple iPhone 15 128GB', shop: 'najnižšia cena na heureka.cz' });
+    backend.resolve(id, 16990, { name: 'Apple iPhone 15 128GB', shop: 'alza.cz', currency: 'CZK' });
     await page.clock.runFor(11_000);
 
     const item = row(page, 'Apple iPhone 15 128GB');
     await expect(item).toContainText(/16\s990\sKč/);
-    await expect(item).not.toContainText('Hľadám');
+    await expect(item).not.toContainText('Zisťujem');
   });
 
   test('chyba servera pri pridaní sa zobrazí a vstup zostane', async ({ app: { page, backend } }) => {
     await page.goto('/');
     backend.failNext = { status: 500, error: 'Chyba servera: D1 nedostupná' };
-    await addField(page).fill('lego 42115');
+    await addField(page).fill('https://www.nay.sk/lego-42115');
     await page.getByRole('button', { name: 'Sledovať' }).click();
     await expect(page.getByRole('alert')).toHaveText('Chyba servera: D1 nedostupná');
-    await expect(addField(page)).toHaveValue('lego 42115');
+    await expect(addField(page)).toHaveValue('https://www.nay.sk/lego-42115');
   });
 });
 
@@ -202,13 +198,22 @@ test.describe('detail produktu', () => {
     await expect(row(page, 'Kávovar X')).toContainText('Zisťujem cenu…');
   });
 
-  test('pri produkte hľadanom podľa názvu nie je CSS selektor, odkaz vedie na ponuky', async ({ app: { page, backend } }) => {
-    backend.seed({ name: 'Apple iPhone 15', kind: 'query', prices: [699], track_url: 'https://heureka.test/iphone' });
+  test('detail ponúkne porovnanie cien na Heureke podľa názvu produktu', async ({ app: { page, backend } }) => {
+    backend.seed({ name: 'Sony WH-1000XM5', prices: [299] });
+    backend.seed({ name: 'Apple iPhone 15', currency: 'CZK', prices: [16990] });
     await page.goto('/');
+
+    await row(page, 'Sony').click();
+    const sk = page.getByRole('dialog').getByRole('link', { name: 'Porovnať ceny na Heureke' });
+    await expect(sk).toHaveAttribute('href', 'https://www.heureka.sk/?h%5Bfraze%5D=Sony%20WH-1000XM5');
+    await expect(sk).toHaveAttribute('target', '_blank');
+    await page.getByRole('dialog').getByRole('button', { name: 'Zavrieť' }).click();
+
     await row(page, 'Apple iPhone 15').click();
-    const detail = page.getByRole('dialog');
-    await expect(detail.getByRole('link', { name: 'Otvoriť ponuky obchodov' })).toBeVisible();
-    await expect(detail.getByText('Vlastný CSS selektor ceny')).toHaveCount(0);
+    await expect(page.getByRole('dialog').getByRole('link', { name: 'Porovnať ceny na Heureke' })).toHaveAttribute(
+      'href',
+      'https://www.heureka.cz/?h%5Bfraze%5D=Apple%20iPhone%2015',
+    );
   });
 
   test('prestať sledovať sa dá až po potvrdení', async ({ app: { page, backend } }) => {

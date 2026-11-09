@@ -202,43 +202,6 @@ export function hostOf(url) {
   }
 }
 
-export function normalize(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-export function tokens(text) {
-  return normalize(text)
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 2 || /\d/.test(t));
-}
-
-/**
- * Z výsledkov vyhľadávania vyberie najlacnejší relevantný produkt.
- * 1) nechá len výsledky, ktorých názov obsahuje všetky slová dopytu,
- * 2) vyhodí podozrivo lacné položky (< 30 % mediánu) – typicky príslušenstvo (obal, kábel…),
- * 3) vezme najlacnejší.
- */
-export function pickCheapest(query, items) {
-  const valid = (items || []).filter((i) => i && i.url && i.price > 0);
-  if (!valid.length) return null;
-  const q = tokens(query);
-  const matching = valid.filter((i) => {
-    const name = normalize(i.name);
-    return q.every((t) => name.includes(t));
-  });
-  let pool = matching.length ? matching : valid.slice(0, 5);
-  if (pool.length >= 3) {
-    const sorted = pool.map((i) => i.price).sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const filtered = pool.filter((i) => i.price >= median * 0.3);
-    if (filtered.length) pool = filtered;
-  }
-  return pool.reduce((a, b) => (b.price < a.price ? b : a));
-}
-
 /** Kurz EUR→CZK z denného XML Európskej centrálnej banky. */
 export function parseEcbCzk(xml) {
   const m = String(xml || '').match(/currency=['"]CZK['"]\s+rate=['"]([\d.]+)['"]/);

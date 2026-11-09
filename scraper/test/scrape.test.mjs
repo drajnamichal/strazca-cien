@@ -3,7 +3,7 @@
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createContext, checkProduct, launchBrowser, settings } from '../scrape.mjs';
+import { createContext, checkProduct, launchBrowser, settings, QUERY_UNSUPPORTED } from '../scrape.mjs';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -78,50 +78,6 @@ test('CSS selektor, ktorý na stránke nič nenájde, sa ohlási ako chyba', asy
   assert.match(r.error, /nič nenašiel/);
 });
 
-test('názov produktu: nájde správny model na Heureke a sleduje jeho najnižšiu cenu', async () => {
-  await serve({
-    'https://www.heureka.sk/*': 'heureka-search.html',
-    'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product.html',
-  });
-  const r = await checkProduct(context, queryProduct('iphone 15'));
-  assert.equal(r.ok, true);
-  assert.equal(r.track_url, 'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/');
-  assert.equal(r.price, 689); // lowPrice zo stránky produktu, nie 699 z výsledkov
-  assert.equal(r.name, 'Apple iPhone 15 128GB');
-  assert.match(r.shop, /najnižšia cena/);
-  assert.ok(requests.some((u) => u.includes('h%5Bfraze%5D=iphone%2015')), 'hľadalo sa podľa zadaného názvu');
-});
-
-test('názov produktu: keď stránka produktu nemá cenu, použije cenu z výsledkov vyhľadávania', async () => {
-  await serve({
-    'https://www.heureka.sk/*': 'heureka-search.html',
-    'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product-plain.html',
-  });
-  const r = await checkProduct(context, queryProduct('iphone 15'));
-  assert.equal(r.ok, true);
-  assert.equal(r.price, 699);
-});
-
-test('názov produktu na CZ trhu hľadá na Heureka.cz a cenu vedie v Kč', async () => {
-  await serve({
-    'https://www.heureka.cz/*': 'heureka-search.html',
-    'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product-plain.html',
-  });
-  const r = await checkProduct(context, queryProduct('iphone 15', { market: 'cz' }));
-  assert.equal(r.currency, 'CZK');
-  assert.ok(requests[0].startsWith('https://www.heureka.cz/'));
-});
-
-test('už nájdený produkt sa pri ďalšej kontrole znova nehľadá', async () => {
-  await serve({ 'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product.html' });
-  const r = await checkProduct(
-    context,
-    queryProduct('iphone 15', { track_url: 'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/' }),
-  );
-  assert.equal(r.price, 689);
-  assert.ok(!requests.some((u) => u.startsWith('https://www.heureka.sk/')));
-});
-
 test('zablokovaný prístup (HTTP 403) skončí zrozumiteľnou chybou', async () => {
   await serve({ 'https://shop.test/blok': { status: 403 } });
   await assert.rejects(checkProduct(context, urlProduct('https://shop.test/blok')), /zablokoval/);
@@ -144,67 +100,6 @@ test('vypredaný produkt bez ceny sa vráti ako vypredaný, nie ako chyba', asyn
   assert.equal(r.in_stock, false);
   assert.equal(r.name, 'Herná konzola | Obchod');
 });
-
-// ---------- lacnejšie v inom obchode ----------
-
-test('produkt s EAN sa porovná s najnižšou ponukou na Heureke', async () => {
-  await serve({
-    'https://www.alza.sk/sony': 'shop-ean.html',
-    'https://www.heureka.sk/*': 'heureka-ean-search.html',
-  });
-  const r = await checkProduct(context, urlProduct('https://www.alza.sk/sony'));
-  assert.equal(r.price, 299);
-  assert.equal(r.ean, '5901234123457');
-  assert.equal(r.best_offer_price, 279);
-  assert.equal(r.best_offer_url, 'https://sluchadla.heureka.sk/sony-wh-1000xm5/');
-  assert.ok(requests.some((u) => u.includes('h%5Bfraze%5D=5901234123457')), 'hľadalo sa podľa EAN');
-});
-
-test('keď hľadanie EAN skončí rovno na stránke produktu, cena sa vezme z nej', async () => {
-  // Heureka pri presnej zhode presmeruje na produkt; tu vráti produkt priamo na adrese hľadania
-  await serve({ 'https://www.alza.sk/sony': 'shop-ean.html', 'https://www.heureka.sk/*': 'heureka-sony.html' });
-  const r = await checkProduct(context, urlProduct('https://www.alza.sk/sony'));
-  assert.equal(r.best_offer_price, 275);
-  assert.match(r.best_offer_url, /^https:\/\/www\.heureka\.sk\//);
-});
-
-test('už nájdená stránka na Heureke sa nabudúce otvorí priamo', async () => {
-  await serve({
-    'https://www.alza.sk/sony': 'shop-ean.html',
-    'https://sluchadla.heureka.sk/sony-wh-1000xm5/': 'heureka-sony.html',
-  });
-  const r = await checkProduct(
-    context,
-    urlProduct('https://www.alza.sk/sony', { best_offer_url: 'https://sluchadla.heureka.sk/sony-wh-1000xm5/' }),
-  );
-  assert.equal(r.best_offer_price, 275);
-  assert.ok(!requests.some((u) => u.startsWith('https://www.heureka.sk/')));
-});
-
-test('keď Heureka produkt nepozná, porovnanie sa vynuluje', async () => {
-  await serve({ 'https://www.alza.sk/sony': 'shop-ean.html', 'https://www.heureka.sk/*': 'heureka-empty.html' });
-  const r = await checkProduct(context, urlProduct('https://www.alza.sk/sony'));
-  assert.equal(r.ok, true);
-  assert.equal(r.best_offer_price, null);
-  assert.equal(r.best_offer_url, null);
-});
-
-test('zlyhanie Heureky nepokazí kontrolu ceny a porovnanie sa neodošle', async () => {
-  await serve({ 'https://www.alza.sk/sony': 'shop-ean.html', 'https://www.heureka.sk/*': { status: 403 } });
-  const r = await checkProduct(context, urlProduct('https://www.alza.sk/sony'));
-  assert.equal(r.ok, true);
-  assert.equal(r.price, 299);
-  assert.equal('best_offer_price' in r, false);
-});
-
-test('bez EAN, s vypnutým upozornením alebo pri produkte z hľadania sa Heureka nevolá', async () => {
-  await serve({ 'https://shop.test/sony': 'shop-jsonld.html', 'https://www.alza.sk/sony': 'shop-ean.html' });
-  await checkProduct(context, urlProduct('https://shop.test/sony'));
-  await checkProduct(context, urlProduct('https://www.alza.sk/sony', { notify_elsewhere: 0 }));
-  assert.ok(!requests.some((u) => u.includes('heureka')));
-});
-
-// ---------- kanárik nad fixtures ----------
 
 test('kanárik prejde skutočnou cestou scrapera a nahlási zlyhaný obchod', async () => {
   const { runCanary } = await import('../canary.mjs');
@@ -283,13 +178,17 @@ test('trvalé blokovanie skončí chybou s nadpisom stránky pre diagnostiku', a
   });
 });
 
-test('pred hľadaním na Heureke najprv otvorí jej titulnú stránku', async () => {
-  await serve({
-    'https://www.heureka.sk/*': 'heureka-search.html',
-    'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product.html',
-  });
-  await checkProduct(context, queryProduct('iphone 15'));
-  const heureka = requests.filter((u) => u.startsWith('https://www.heureka.sk/'));
-  assert.equal(heureka[0], 'https://www.heureka.sk/');
-  assert.match(heureka[1], /h%5Bfraze%5D=iphone%2015/);
+test('produkt pridaný kedysi názvom sa nekontroluje a nikam sa nechodí', async () => {
+  await serve({});
+  const r = await checkProduct(context, queryProduct('iphone 15'));
+  assert.deepEqual(r, { id: 2, ok: false, error: QUERY_UNSUPPORTED });
+  assert.deepEqual(requests, []);
+});
+
+test('EAN zo stránky obchodu sa pošle ďalej (pre odkaz na Heureku v appke)', async () => {
+  await serve({ 'https://www.alza.sk/sony': 'shop-ean.html' });
+  const r = await checkProduct(context, urlProduct('https://www.alza.sk/sony'));
+  assert.equal(r.ean, '5901234123457');
+  assert.equal(r.price, 299);
+  assert.deepEqual(requests, ['https://www.alza.sk/sony'], 'žiadna iná stránka sa neotvára');
 });

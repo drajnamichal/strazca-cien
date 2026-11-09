@@ -86,17 +86,14 @@ test('pridanie cez URL uloží čakajúci produkt a hneď spustí jeho kontrolu'
   assert.deepEqual(githubCalls[0].body, { ref: 'main', inputs: { product_id: String(body.product.id) } });
 });
 
-test('pridanie cez názov uloží hľadanie pre zvolený trh', async () => {
-  const { body } = await add('  iPhone 15 128GB ', { market: 'cz' });
-  assert.equal(body.product.kind, 'query');
-  assert.equal(body.product.market, 'cz');
-  assert.equal(body.product.name, 'iPhone 15 128GB');
-  assert.equal(body.product.track_url, null);
-});
-
-test('text, ktorý len vyzerá ako adresa, sa berie ako názov', async () => {
-  assert.equal((await add('ftp://nieco')).body.product.kind, 'query');
-  assert.equal((await add('alza.sk')).body.product.kind, 'query');
+test('namiesto odkazu (názov, neúplná adresa) produkt nepridá a vysvetlí prečo', async () => {
+  for (const input of ['iPhone 15 128GB', 'ftp://nieco', 'alza.sk']) {
+    const { status, body } = await add(input);
+    assert.equal(status, 400, input);
+    assert.match(body.error, /odkaz na produkt/);
+  }
+  assert.equal((await products()).products.length, 0);
+  assert.equal(githubCalls.length, 0);
 });
 
 test('prázdny vstup vráti 400 s vysvetlením', async () => {
@@ -145,7 +142,7 @@ test('pokles ceny vytvorí notifikáciu a vráti zariadenia na doručenie', asyn
 });
 
 test('zdraženie v Kč sa ohlási ako zdraženie s kladným percentom', async () => {
-  const id = (await add('rtx 4070', { market: 'cz' })).body.product.id;
+  const id = (await add('https://www.alza.cz/rtx-4070')).body.product.id;
   await report([{ id, ok: true, price: 15000, currency: 'CZK' }]);
   const { body } = await report([{ id, ok: true, price: 16500, currency: 'CZK' }]);
   assert.match(body.notifications[0].title, /Zdražilo/);
@@ -179,12 +176,6 @@ test('zlyhaná kontrola si nechá poslednú cenu a zaznamená chybu', async () =
   assert.equal(recovered.status, 'ok');
   assert.equal(recovered.error_count, 0);
   assert.equal(recovered.last_error, null);
-});
-
-test('nájdená stránka produktu z hľadania sa uloží pre ďalšie kontroly', async () => {
-  const id = (await add('iphone 15')).body.product.id;
-  await report([{ id, ok: true, price: 689, currency: 'EUR', track_url: 'https://heureka.test/iphone-15/' }]);
-  assert.equal((await product(id)).track_url, 'https://heureka.test/iphone-15/');
 });
 
 test('zoznam vracia predošlú, najnižšiu a najvyššiu cenu aj kurz ECB', async () => {
@@ -439,53 +430,4 @@ test('interné upozornenie vráti notifikáciu a zariadenia na doručenie', asyn
   assert.deepEqual(body.notifications, [{ title: 'Kanárik: 2 obchody zlyhali', body: 'Alza.sk, Nay.sk', url: '/', tag: 'canary' }]);
   assert.deepEqual(body.subscriptions.map((s) => s.endpoint), ['https://push.test/k']);
   assert.equal((await call('POST', '/api/internal/alert', {})).status, 400);
-});
-
-// ---------- lacnejšie v inom obchode ----------
-
-const offer = (id, price, best, extra = {}) =>
-  report([{ id, ok: true, price, best_offer_price: best, best_offer_url: 'https://heureka.test/sony/', ean: '5901234123457', ...extra }]);
-
-test('upozorní, keď je produkt inde lacnejšie, a len raz kým rozdiel trvá', async () => {
-  const id = (await add('https://www.alza.sk/sony')).body.product.id;
-  await subscribe();
-  await report([{ id, ok: true, price: 299, name: 'Sony WH-1000XM5', shop: 'alza.sk' }]);
-
-  const first = (await offer(id, 299, 279)).body.notifications;
-  assert.equal(first.length, 1);
-  assert.match(first[0].title, /Inde lacnejšie: Sony WH-1000XM5/);
-  assert.match(first[0].body, /alza\.sk 299,00\s€, na Heureke od 279,00\s€ \(−7 %\)/);
-  assert.equal(first[0].tag, `elsewhere-${id}`);
-
-  assert.equal((await offer(id, 299, 275)).body.notifications.length, 0, 'rozdiel trvá');
-  await offer(id, 299, 305); // inde už drahšie
-  assert.equal((await offer(id, 299, 285)).body.notifications.length, 1, 'nový rozdiel');
-});
-
-test('zanedbateľný rozdiel (pod 1 %) neupozorní', async () => {
-  const id = (await add('https://www.alza.sk/sony')).body.product.id;
-  await report([{ id, ok: true, price: 299 }]);
-  assert.equal((await offer(id, 299, 297)).body.notifications.length, 0);
-});
-
-test('porovnanie s inými obchodmi sa uloží, vypne a pri neoverení zostane posledné', async () => {
-  const id = (await add('https://www.alza.sk/sony')).body.product.id;
-  await report([{ id, ok: true, price: 299 }]);
-  await offer(id, 299, 279);
-  let p = await product(id);
-  assert.equal(p.ean, '5901234123457');
-  assert.equal(p.best_offer_price, 279);
-  assert.equal(p.best_offer_url, 'https://heureka.test/sony/');
-
-  await report([{ id, ok: true, price: 299 }]); // porovnanie tentoraz neprebehlo
-  assert.equal((await product(id)).best_offer_price, 279);
-
-  await report([{ id, ok: true, price: 299, best_offer_price: null, best_offer_url: null }]); // na Heureke nenájdené
-  p = await product(id);
-  assert.equal(p.best_offer_price, null);
-
-  await call('PATCH', `/api/products/${id}`, { notify_elsewhere: false });
-  await report([{ id, ok: true, price: 299 }]);
-  assert.equal((await offer(id, 299, 250)).body.notifications.length, 0);
-  assert.equal((await product(id)).notify_elsewhere, 0);
 });

@@ -13,7 +13,6 @@ const json = (data, status = 200) =>
 
 const nowIso = () => new Date().toISOString();
 const FAILURE_ALERT_AFTER = 3; // po koľkých zlyhaniach za sebou upozorniť
-const ELSEWHERE_MIN_GAP = 0.01; // inde lacnejšie aspoň o 1 %
 
 function authorized(request, env) {
   const header = request.headers.get('authorization') || '';
@@ -108,7 +107,10 @@ async function addProduct(request, env) {
   if (input.length > 2000) return json({ error: 'Vstup je príliš dlhý.' }, 400);
 
   const url = parseHttpUrl(input);
-  const kind = url ? 'url' : 'query';
+  if (!url) {
+    return json({ error: 'Vlož odkaz na produkt z e-shopu (začína sa https://).' }, 400);
+  }
+  const kind = 'url';
   const row = await env.DB.prepare(
     `INSERT INTO products (input, kind, market, track_url, selector, name, shop, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) RETURNING *`,
@@ -160,7 +162,7 @@ async function updateProduct(request, env, id) {
     sets.push('min_change_pct = ?');
     values.push(r.value || null);
   }
-  for (const key of ['notify_increase', 'notify_stock', 'notify_elsewhere']) {
+  for (const key of ['notify_increase', 'notify_stock']) {
     if (key in body) {
       sets.push(`${key} = ?`);
       values.push(body[key] ? 1 : 0);
@@ -305,34 +307,16 @@ async function saveResults(request, env) {
       }
     }
 
-    // porovnanie s inými obchodmi: chýbajúci kľúč = tentoraz neprebehlo, null = nenájdené
-    const checkedElsewhere = 'best_offer_price' in r;
-    const bestOffer = checkedElsewhere ? (r.best_offer_price > 0 ? Math.round(r.best_offer_price * 100) / 100 : null) : p.best_offer_price;
-    const bestOfferUrl = checkedElsewhere ? r.best_offer_url || null : p.best_offer_url;
-    const cheaperElsewhere = (own, best) => best != null && own != null && best < own * (1 - ELSEWHERE_MIN_GAP);
-    if (
-      p.notify_elsewhere &&
-      cheaperElsewhere(price, bestOffer) &&
-      !cheaperElsewhere(p.current_price ?? price, p.best_offer_price)
-    ) {
-      notifications.push({
-        title: `Inde lacnejšie: ${name}`.slice(0, 120),
-        body: `${shop ? `${shop} ` : ''}${formatMoney(price, currency)}, na Heureke od ${formatMoney(bestOffer, currency)} (−${Math.round((1 - bestOffer / price) * 100)} %)`,
-        url: `/#p-${p.id}`,
-        tag: `elsewhere-${p.id}`,
-      });
-    }
-
     statements.push(
       env.DB.prepare(
         `UPDATE products SET current_price = ?, currency = ?, name = COALESCE(?, name),
            image = COALESCE(?, image), shop = COALESCE(?, shop), track_url = COALESCE(?, track_url),
            in_stock = COALESCE(?, in_stock), list_price = ?, last_notified_price = ?,
-           ean = COALESCE(?, ean), best_offer_price = ?, best_offer_url = ?,
+           ean = COALESCE(?, ean),
            status = 'ok', last_error = NULL, error_count = 0, last_checked = ? WHERE id = ?`,
       ).bind(
         price, currency, r.name || null, r.image || null, r.shop || null, r.track_url || null,
-        stock, listPrice, lastNotified, r.ean || null, bestOffer, bestOfferUrl, checkedAt, p.id,
+        stock, listPrice, lastNotified, r.ean || null, checkedAt, p.id,
       ),
     );
     if (changed) {

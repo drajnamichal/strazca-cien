@@ -17,10 +17,12 @@ test.describe('pridanie cez zdieľanie', () => {
     expect(backend.calls('POST', '/api/products')[0].body.input).toBe('https://www.datart.sk/kavovar-x.html');
   });
 
-  test('zdieľaný text bez odkazu sa hľadá ako názov produktu', async ({ app: { page, backend } }) => {
+  test('zdieľaný text bez odkazu sa nepridá, ponúkne hľadanie na Heureke', async ({ app: { page, backend } }) => {
     await page.goto('/?text=Sony%20WH-1000XM5');
-    await expect(row(page, 'Sony WH-1000XM5')).toContainText('Hľadám najnižšiu cenu…');
-    expect(backend.calls('POST', '/api/products')[0].body).toEqual({ input: 'Sony WH-1000XM5', market: 'sk' });
+    await expect(page.getByRole('alert')).toContainText('Zdieľaný text neobsahuje odkaz na produkt');
+    await expect(page.getByLabel('Odkaz na produkt')).toHaveValue('Sony WH-1000XM5');
+    await expect(page.getByRole('link', { name: /Hľadať „Sony WH-1000XM5“ na Heureke/ })).toBeVisible();
+    expect(backend.calls('POST', '/api/products')).toHaveLength(0);
   });
 
   test('zdieľanie pred prihlásením sa dokončí po zadaní kľúča', async ({ page, backend }) => {
@@ -69,7 +71,6 @@ test.describe('cieľová cena a prah notifikácie', () => {
       min_change_pct: 5,
       notify_increase: false,
       notify_stock: true,
-      notify_elsewhere: true,
     });
     await detail.getByRole('button', { name: 'Zavrieť' }).click();
     await expect(row(page, 'Sony')).toContainText(/cieľ 249,90\s€/);
@@ -177,56 +178,6 @@ test.describe('znova skladom', () => {
     await detail.getByRole('button', { name: 'Uložiť upozornenia' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Upozornenia uložené' })).toBeVisible();
     expect(backend.calls('PATCH', `/api/products/${p.id}`)[0].body.notify_stock).toBe(false);
-  });
-});
-
-test.describe('lacnejšie v inom obchode', () => {
-  const sony = {
-    name: 'Sony WH-1000XM5',
-    shop: 'alza.sk',
-    prices: [299],
-    ean: '5901234123457',
-    best_offer_price: 279,
-    best_offer_url: 'https://sluchadla.heureka.sk/sony-wh-1000xm5/',
-  };
-
-  test('zoznam aj detail ukážu, že inde je lacnejšie, s odkazom na ponuky', async ({ app: { page, backend } }) => {
-    backend.seed(sony);
-    await page.goto('/');
-    await expect(row(page, 'Sony')).toContainText(/inde od 279,00\s€/);
-    await row(page, 'Sony').click();
-    const card = page.getByRole('region', { name: 'Inde lacnejšie' });
-    await expect(card).toContainText(/Na Heureke od 279,00\s€, o 7 % lacnejšie než v alza\.sk/);
-    await expect(card.getByRole('link', { name: 'Pozrieť ponuky' })).toHaveAttribute('href', sony.best_offer_url);
-  });
-
-  test('keď je ponuka inde rovnaká alebo drahšia, nič sa neukazuje', async ({ app: { page, backend } }) => {
-    backend.seed({ ...sony, best_offer_price: 298 });
-    await page.goto('/');
-    await expect(row(page, 'Sony')).not.toContainText('inde od');
-    await row(page, 'Sony').click();
-    await expect(page.getByRole('region', { name: 'Inde lacnejšie' })).toHaveCount(0);
-  });
-
-  test('upozornenie na lacnejšiu ponuku sa dá vypnúť', async ({ app: { page, backend } }) => {
-    const p = backend.seed(sony);
-    await page.goto('/');
-    await row(page, 'Sony').click();
-    await page.getByRole('dialog').getByLabel('Upozorniť, keď bude inde lacnejšie').uncheck();
-    await page.getByRole('dialog').getByRole('button', { name: 'Uložiť upozornenia' }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Upozornenia uložené' })).toBeVisible();
-    expect(backend.calls('PATCH', `/api/products/${p.id}`)[0].body.notify_elsewhere).toBe(false);
-  });
-
-  test('pri produkte z hľadania (už najlacnejší) sa porovnanie neponúka', async ({ app: { page, backend } }) => {
-    const p = backend.seed({ name: 'iPhone 15', kind: 'query', prices: [699] });
-    await page.goto('/');
-    await row(page, 'iPhone').click();
-    const detail = page.getByRole('dialog');
-    await expect(detail.getByLabel('Upozorniť, keď bude inde lacnejšie')).toHaveCount(0);
-    await detail.getByRole('button', { name: 'Uložiť upozornenia' }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Upozornenia uložené' })).toBeVisible();
-    expect('notify_elsewhere' in backend.calls('PATCH', `/api/products/${p.id}`)[0].body).toBe(false);
   });
 });
 

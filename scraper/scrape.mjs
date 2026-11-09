@@ -1,9 +1,8 @@
 // Práca s prehliadačom: načítanie stránky, zber údajov, vyhľadávanie na Heureke.
 // Oddelené od check.mjs, aby sa to dalo testovať na lokálnych HTML fixtures.
 import { chromium } from 'playwright';
-import { extractPrice, extractFromJsonLd, parsePrice, pickCheapest, hostOf } from './extract.mjs';
+import { extractPrice } from './extract.mjs';
 
-export const HEUREKA = { sk: 'https://www.heureka.sk', cz: 'https://www.heureka.cz' };
 
 /** Nastavenia, ktoré si testy môžu zmeniť (napr. bez čakania pri opakovaní). */
 export const settings = { retryDelayMs: 12_000 };
@@ -115,129 +114,25 @@ export function collectPageData(selector) {
   };
 }
 
-// Heuristika pre výsledky vyhľadávania na Heureke: nájde najmenšie bloky,
-// ktoré obsahujú nadpis s odkazom a cenu. Nezávisí od konkrétnych CSS tried.
-export function collectSearchResults() {
-  const priceRe = /(\d[\d\s\u00a0.,]*)\s*(€|Kč)/;
-  const candidates = [...document.querySelectorAll('li, article, section, div')].filter((el) => {
-    const text = el.innerText || '';
-    return text.length < 1500 && priceRe.test(text) && el.querySelector('h2 a, h3 a, a h2, a h3');
-  });
-  const innermost = candidates.filter((el) => !candidates.some((other) => other !== el && el.contains(other)));
-  return innermost.map((el) => {
-    const heading = el.querySelector('h2, h3');
-    const link = heading.closest('a') || heading.querySelector('a');
-    return {
-      name: heading.innerText.trim(),
-      url: link?.href || null,
-      priceText: (el.innerText.match(priceRe) || [])[0] || null,
-      image: el.querySelector('img')?.src || null,
-    };
-  });
-}
-
-/** Výsledky vyhľadávania na Heureke: [{ name, url, price, image }] */
-export async function searchItems(page, query, market) {
-  const base = HEUREKA[market] || HEUREKA.sk;
-  // najprv titulná stránka (cookies, ako keď človek príde na web), potom hľadanie
-  await open(page, `${base}/`);
-  await sleep(800 + Math.random() * 1200);
-  await open(page, `${base}/?h%5Bfraze%5D=${encodeURIComponent(query)}`);
-
-  const fromDom = await page.evaluate(collectSearchResults);
-  // doplnkovo: ItemList v JSON-LD, ak ho stránka má
-  const ldBlocks = await page.$$eval('script[type="application/ld+json"]', (s) => s.map((x) => x.textContent));
-  const fromLd = [];
-  for (const block of ldBlocks) {
-    try {
-      const data = JSON.parse(block);
-      for (const el of [].concat(data?.itemListElement || [])) {
-        const item = el.item || el;
-        const info = extractFromJsonLd([JSON.stringify({ ...item, '@type': 'Product' })]);
-        if (item.url && info.price) fromLd.push({ name: item.name, url: item.url, price: info.price, image: info.image });
-      }
-    } catch {
-      /* ignoruj */
-    }
-  }
-
-  const items = [
-    ...fromLd,
-    ...fromDom.map((i) => ({ ...i, price: parsePrice(i.priceText) })),
-  ].filter((i) => i.url && /heureka\.(sk|cz)/.test(i.url) && !i.url.includes('?'));
-
-  // presná zhoda (napr. podľa EAN) môže Heureka rovno presmerovať na stránku produktu
-  if (!items.length) {
-    const product = extractFromJsonLd(ldBlocks);
-    if (product.price) items.push({ name: product.name, url: page.url(), price: product.price, image: product.image });
-  }
-  return items;
-}
-
-export async function searchHeureka(page, product) {
-  const items = await searchItems(page, product.input, product.market);
-  const best = pickCheapest(product.input, items);
-  if (!best) throw new Error(`Pre „${product.input}“ sa na Heureke nenašiel žiadny produkt s cenou.`);
-  return best;
-}
-
-/**
- * Najnižšia ponuka rovnakého produktu (podľa EAN) na Heureke.
- * Vráti {} keď porovnanie neprebehlo (chyba, bez EAN, vypnuté) – Worker si nechá posledný výsledok.
- */
-export async function findElsewhere(page, product, data) {
-  const enabled = product.kind === 'url' && product.notify_elsewhere !== 0 && data.price != null;
-  if (!enabled || (!data.ean && !product.best_offer_url)) return {};
-  const market = data.currency === 'CZK' ? 'cz' : 'sk';
-  try {
-    if (product.best_offer_url) {
-      await open(page, product.best_offer_url);
-      const offer = extractPrice(await page.evaluate(collectPageData, null), product.best_offer_url);
-      if (offer.price) return { best_offer_price: offer.price, best_offer_url: product.best_offer_url };
-      // stránka na Heureke sa zmenila, skúsime znova hľadať podľa EAN
-    }
-    if (!data.ean) return {};
-    const hit = (await searchItems(page, data.ean, market))[0];
-    return hit ? { best_offer_price: hit.price, best_offer_url: hit.url } : { best_offer_price: null, best_offer_url: null };
-  } catch (err) {
-    console.warn(`  porovnanie na Heureke zlyhalo: ${err.message.split('\n')[0]}`);
-    return {};
-  }
-}
+/** Produkty pridané kedysi názvom sa už nekontrolujú (Heureku appka nečíta). */
+export const QUERY_UNSUPPORTED =
+  'Sledovanie podľa názvu už nie je podporované. Zmaž produkt a pridaj ho odkazom z e-shopu.';
 
 export async function checkProduct(context, product) {
+  if (product.kind !== 'url' || !product.track_url) {
+    return { id: product.id, ok: false, error: QUERY_UNSUPPORTED };
+  }
   const page = await context.newPage();
   try {
-    let trackUrl = product.track_url;
-    let searchHit = null;
-
-    if (product.kind === 'query' && !trackUrl) {
-      searchHit = await searchHeureka(page, product);
-      trackUrl = searchHit.url;
-    }
-
+    const trackUrl = product.track_url;
     await open(page, trackUrl);
     const raw = await page.evaluate(collectPageData, product.selector || null);
-    let data = extractPrice(raw, trackUrl);
-
-    // Záloha pre Heureku: cenu vezmeme z výsledkov vyhľadávania
-    if (data.error && product.kind === 'query') {
-      searchHit ||= await searchHeureka(page, product);
-      data = {
-        price: searchHit.price,
-        currency: product.market === 'cz' ? 'CZK' : 'EUR',
-        name: searchHit.name,
-        image: searchHit.image,
-      };
-      trackUrl = searchHit.url;
-    }
+    const data = extractPrice(raw, trackUrl);
     if (data.error) return { id: product.id, ok: false, error: data.error, track_url: trackUrl };
 
-    const elsewhere = await findElsewhere(page, product, data);
     return {
       id: product.id,
       ok: true,
-      ...elsewhere,
       ean: data.ean || null,
       price: data.price,
       currency: data.currency,
@@ -245,7 +140,7 @@ export async function checkProduct(context, product) {
       list_price: data.listPrice ?? null,
       name: data.name ? data.name.slice(0, 200) : null,
       image: data.image || null,
-      shop: product.kind === 'query' ? `najnižšia cena na ${hostOf(trackUrl)}` : data.shop,
+      shop: data.shop,
       track_url: trackUrl,
     };
   } finally {

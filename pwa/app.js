@@ -149,14 +149,9 @@ function isBelowTarget(p) {
   return p.target_price != null && p.current_price != null && p.current_price <= p.target_price + 0.005;
 }
 
-function cheaperElsewhere(p) {
-  return p.kind === 'url' && p.best_offer_price != null && p.current_price != null && p.best_offer_price < p.current_price * 0.99;
-}
-
 /** Jeden najdôležitejší štítok k produktu, inak mini-graf. */
 function badgeHtml(p) {
   if (p.in_stock === 0) return '<span class="badge out">vypredané</span>';
-  if (cheaperElsewhere(p)) return `<span class="badge info">inde od ${money(p.best_offer_price, currencyOf(p))}</span>`;
   const d = p.discount || {};
   if (d.verdict === 'fake') return '<span class="badge warn">falošná zľava</span>';
   if (d.verdict === 'misleading') return `<span class="badge warn">zľava len ${Math.max(d.realPct, 0)} %</span>`;
@@ -236,33 +231,40 @@ const addInput = $('#add-input');
 const ICON_SEARCH = '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>';
 const ICON_LINK = '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>';
 
+const isUrl = (text) => /^https?:\/\/\S+$/i.test(text.trim());
+
+/** Odkaz na vyhľadávanie na Heureke – appka Heureku nečíta, len ju otvorí tebe. */
+function heurekaSearchUrl(query, currency = 'EUR') {
+  const host = currency === 'CZK' ? 'https://www.heureka.cz' : 'https://www.heureka.sk';
+  return `${host}/?h%5Bfraze%5D=${encodeURIComponent(String(query).trim().slice(0, 120))}`;
+}
+
 function updateHint() {
-  const isUrl = /^https?:\/\//i.test(addInput.value.trim());
-  $('#field-icon').innerHTML = isUrl ? ICON_LINK : ICON_SEARCH;
-  $('#add-hint').textContent = isUrl
-    ? 'Appka bude sledovať cenu priamo na tejto stránke.'
-    : 'Pri názve appka nájde najnižšiu cenu na Heureke a sleduje ju.';
+  const text = addInput.value.trim();
+  $('#field-icon').innerHTML = !text || isUrl(text) ? ICON_LINK : ICON_SEARCH;
+  const hint = $('#add-hint');
+  if (!text) hint.textContent = 'Vlož odkaz na produkt z e-shopu.';
+  else if (isUrl(text)) hint.textContent = 'Appka bude sledovať cenu priamo na tejto stránke.';
+  else {
+    hint.innerHTML = `Appka sleduje produkty cez odkaz z e-shopu. <a href="${esc(heurekaSearchUrl(text))}" target="_blank" rel="noopener">Hľadať „${esc(text.slice(0, 60))}“ na Heureke</a> a potom vlož odkaz z obchodu.`;
+  }
 }
 addInput.addEventListener('input', updateHint);
-
-$('#empty').addEventListener('click', (e) => {
-  const chip = e.target.closest('[data-example]');
-  if (!chip) return;
-  addInput.value = chip.dataset.example;
-  updateHint();
-  addInput.focus();
-});
 
 $('#add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
   const button = form.querySelector('button[type="submit"]');
   $('#add-error').textContent = '';
+  if (!isUrl(addInput.value)) {
+    $('#add-error').textContent = 'Vlož odkaz na produkt z e-shopu (začína sa https://).';
+    return;
+  }
   button.disabled = true;
   try {
     const { dispatch } = await api('/api/products', {
       method: 'POST',
-      body: { input: addInput.value, market: form.market.value },
+      body: { input: addInput.value.trim() },
     });
     addInput.value = '';
     updateHint();
@@ -342,17 +344,6 @@ function discountHtml(p) {
     </section>`;
 }
 
-function elsewhereHtml(p) {
-  if (!cheaperElsewhere(p)) return '';
-  const cur = currencyOf(p);
-  const pct = Math.round((1 - p.best_offer_price / p.current_price) * 100);
-  return `<section class="elsewhere" aria-labelledby="elsewhere-title">
-      <h3 id="elsewhere-title">Inde lacnejšie</h3>
-      <p>Na Heureke od ${money(p.best_offer_price, cur)}, o ${pct} % lacnejšie než v ${esc(p.shop || 'tomto obchode')}.</p>
-      <a class="link-btn" href="${esc(p.best_offer_url)}" target="_blank" rel="noopener">Pozrieť ponuky</a>
-    </section>`;
-}
-
 function alertsHtml(p) {
   const symbol = currencyOf(p) === 'CZK' ? 'Kč' : '€';
   const fmt = (v) => (v == null ? '' : String(v));
@@ -370,7 +361,6 @@ function alertsHtml(p) {
         <p class="muted small">S cieľovou cenou upozorním len na pokles na cieľ alebo pod neho.</p>
         <label class="check"><input id="notify-increase" type="checkbox" ${p.notify_increase !== 0 ? 'checked' : ''}><span>Upozorniť aj na zdraženie</span></label>
         <label class="check"><input id="notify-stock" type="checkbox" ${p.notify_stock !== 0 ? 'checked' : ''}><span>Upozorniť, keď bude znova skladom</span></label>
-        ${p.kind === 'url' ? `<label class="check"><input id="notify-elsewhere" type="checkbox" ${p.notify_elsewhere !== 0 ? 'checked' : ''}><span>Upozorniť, keď bude inde lacnejšie</span></label>` : ''}
         <p id="alerts-error" class="error" role="alert"></p>
         <button class="btn primary" type="submit">Uložiť upozornenia</button>
       </form>
@@ -402,7 +392,6 @@ function detailHtml(p) {
     ${p.status === 'error' ? `<p class="detail-error">${esc(p.last_error)}${p.error_count >= 2 ? ` Zlyhalo ${p.error_count}× po sebe.` : ''}</p>` : ''}
     ${p.status === 'pending' ? `<p class="muted">${p.kind === 'query' ? 'Hľadám najnižšiu cenu…' : 'Zisťujem cenu…'}</p>` : ''}
     ${p.in_stock === 0 ? `<p class="stock-note">Momentálne vypredané.${p.notify_stock !== 0 ? ' Dám vedieť, keď bude znova skladom.' : ''}</p>` : ''}
-    ${elsewhereHtml(p)}
     ${discountHtml(p)}
     <dl class="stats">
       <div><dt>Najnižšia</dt><dd>${money(p.min_price, cur)}</dd></div>
@@ -411,7 +400,8 @@ function detailHtml(p) {
     </dl>
     <div id="chart"><p class="muted">Načítavam históriu…</p></div>
     <div class="links">
-      ${p.track_url ? `<a class="link-btn" href="${esc(p.track_url)}" target="_blank" rel="noopener">${p.kind === 'query' ? 'Otvoriť ponuky obchodov' : 'Otvoriť v obchode'} ${linkIcon}</a>` : ''}
+      ${p.track_url && p.kind === 'url' ? `<a class="link-btn" href="${esc(p.track_url)}" target="_blank" rel="noopener">Otvoriť v obchode ${linkIcon}</a>` : ''}
+      <a class="link-btn" href="${esc(heurekaSearchUrl(p.name || p.input, cur))}" target="_blank" rel="noopener">Porovnať ceny na Heureke ${linkIcon}</a>
     </div>
     ${p.kind === 'url' ? `
     <details class="advanced" ${p.status === 'error' ? 'open' : ''}>
@@ -474,8 +464,6 @@ async function openDetail(id, sourceTag = null) {
       notify_increase: $('#notify-increase', dlg).checked,
       notify_stock: $('#notify-stock', dlg).checked,
     };
-    const elsewhere = $('#notify-elsewhere', dlg);
-    if (elsewhere) body.notify_elsewhere = elsewhere.checked;
     if (Number.isNaN(body.target_price) || Number.isNaN(body.min_change_pct)) {
       $('#alerts-error', dlg).textContent = 'Zadaj číslo, napríklad 249,90.';
       return;
@@ -631,8 +619,14 @@ async function consumeShare() {
   const input = sessionStorage.getItem('sc_share');
   if (!input) return;
   sessionStorage.removeItem('sc_share');
+  if (!isUrl(input)) {
+    addInput.value = input;
+    updateHint();
+    $('#add-error').textContent = 'Zdieľaný text neobsahuje odkaz na produkt. Nájdi ho na Heureke a pridaj odkaz z obchodu.';
+    return;
+  }
   try {
-    await api('/api/products', { method: 'POST', body: { input, market: $('#add-form').market.value } });
+    await api('/api/products', { method: 'POST', body: { input } });
     toast('Pridané zo zdieľania. Cena bude o minútu–dve.');
     await loadProducts();
   } catch (err) {

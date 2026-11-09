@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePrice, detectCurrency, extractFromJsonLd, extractPrice, pickCheapest, parseEcbCzk } from '../extract.mjs';
+import { parsePrice, detectCurrency, extractFromJsonLd, extractPrice, parseEcbCzk } from '../extract.mjs';
 
 test('parsePrice zvláda slovenské, české aj strojové formáty', () => {
   const cases = [
@@ -75,21 +75,6 @@ test('extractPrice: vlastný selektor má prednosť, inak meta tagy', () => {
   assert.equal(extractPrice({ ...base, selectorText: '45,90 €' }, 'https://x.sk').price, 45.9);
   assert.equal(extractPrice({ ...base, selectorText: null }, 'https://x.sk').price, 50);
   assert.match(extractPrice({ ...base, meta: {}, selectorText: null }, 'https://x.sk').error, /CSS selektor/);
-});
-
-test('pickCheapest ignoruje príslušenstvo a nerelevantné výsledky', () => {
-  const items = [
-    { name: 'Apple iPhone 15 128GB', url: 'u1', price: 699 },
-    { name: 'Apple iPhone 15 256GB', url: 'u2', price: 829 },
-    { name: 'Kryt na iPhone 15', url: 'u3', price: 9.9 },
-    { name: 'Samsung Galaxy S24', url: 'u4', price: 599 },
-  ];
-  assert.equal(pickCheapest('iphone 15', items).url, 'u1');
-});
-
-test('pickCheapest bez zhody vráti najlacnejší z top 5', () => {
-  assert.equal(pickCheapest('neexistuje', [{ name: 'A', url: 'a', price: 5 }, { name: 'B', url: 'b', price: 3 }]).url, 'b');
-  assert.equal(pickCheapest('x', []), null);
 });
 
 test('parseEcbCzk', () => {

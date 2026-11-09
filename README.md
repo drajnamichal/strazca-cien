@@ -1,6 +1,6 @@
 # Strážca cien
 
-PWA na sledovanie cien produktov na SK a CZ e-shopoch. Kontrola každých 5 hodín, Web Push notifikácia pri každej zmene ceny. Produkt pridáš odkazom alebo názvom (vtedy appka nájde najnižšiu cenu na Heureka.sk / Heureka.cz a sleduje ju).
+PWA na sledovanie cien produktov na SK a CZ e-shopoch. Kontrola každých 5 hodín, Web Push notifikácia pri každej zmene ceny. Produkt pridáš odkazom z e-shopu. Pri každom produkte je odkaz na Heureku, kde si porovnáš ceny v iných obchodoch.
 
 Všetko beží na bezplatných službách, bez platobnej karty.
 
@@ -79,7 +79,6 @@ Potrebuješ účet na GitHube, bezplatný účet na Cloudflare a Node.js 20+.
 ## Používanie
 
 - **Odkaz na produkt:** appka číta cenu zo štruktúrovaných dát stránky (schema.org JSON-LD, microdata, meta tagy). Tie má väčšina e-shopov. Ak cenu nenájde, v detaile produktu zadaj vlastný CSS selektor ceny.
-- **Názov produktu:** prepínač SK/CZ určuje, či sa hľadá na Heureka.sk (€) alebo Heureka.cz (Kč). Appka vezme výsledky, ktorých názov obsahuje všetky slová z dopytu, vyradí podozrivo lacné položky (príslušenstvo pod 30 % mediánu) a sleduje najlacnejší produkt. Čím presnejší názov (napr. „iPhone 15 128GB“), tým lepší výsledok.
 - **Upozornenia** si nastavíš v detaile produktu:
   - *Cieľová cena:* notifikácia príde, až keď cena klesne na cieľ alebo pod neho.
   - *Prah zmeny v %:* počíta sa od ceny pri poslednej notifikácii, takže sa sčítajú aj postupné malé poklesy.
@@ -87,10 +86,10 @@ Potrebuješ účet na GitHube, bezplatný účet na Cloudflare a Node.js 20+.
   - Bez nastavení príde notifikácia pri každej zmene.
 - **Znova skladom:** appka číta dostupnosť zo štruktúrovaných dát stránky. Vypredaný produkt má v zozname štítok a keď sa vráti na sklad, príde notifikácia aj s cenou.
 - **Falošné zľavy:** ak obchod uvádza prečiarknutú cenu, appka ju porovná s najnižšou cenou za 30 dní pred aktuálnou cenou (rovnaké pravidlo ako smernica EÚ Omnibus). Výsledok je *skutočná*, *menšia, než sa tvári* alebo *falošná* zľava. Pri histórii kratšej ako 30 dní to appka priamo povie.
-- **Lacnejšie v inom obchode:** pri produkte pridanom cez odkaz appka prečíta zo stránky EAN, nájde ten istý produkt na Heureke a porovná ceny. Keď je inde lacnejšie aspoň o 1 %, príde jedna notifikácia (ďalšia až pri novom rozdiele) a v zozname aj detaile vidno najnižšiu ponuku s odkazom. Obchod bez EAN v štruktúrovaných dátach sa neporovnáva, aby appka nehlásila iný produkt s podobným názvom.
+- **Porovnanie na Heureke:** v detaile produktu je odkaz, ktorý otvorí Heureku s vyhľadaným produktom. Appka Heureku sama nečíta (blokuje automatický prístup), ceny v iných obchodoch si pozrieš priamo tam. Keď do poľa napíšeš názov namiesto odkazu, appka ti ponúkne hľadanie na Heureke.
 - **Opakované zlyhanie:** keď kontrola produktu zlyhá 3× po sebe, príde notifikácia s dôvodom, takže sa nestane, že produkt týždne potichu nesleduješ.
 - **Pridanie cez zdieľanie:**
-  - *Android:* po nainštalovaní appky na plochu sa objaví v ponuke Zdieľať. Zdieľaj produkt z e-shopu alebo prehliadača a hneď sa pridá. Funguje aj zdieľaný text bez odkazu, vtedy sa hľadá podľa názvu.
+  - *Android:* po nainštalovaní appky na plochu sa objaví v ponuke Zdieľať. Zdieľaj produkt z e-shopu alebo prehliadača a hneď sa pridá. Ak zdieľaný text neobsahuje odkaz, appka ponúkne hľadanie na Heureke.
   - *iPhone:* iOS zatiaľ nedovoľuje PWA byť v ponuke Zdieľať. Vytvor si v appke Skratky skratku: zapni *Zobraziť v hárku zdieľania* (typ vstupu URL a text), pridaj akciu *Otvoriť URL* s adresou `https://TVOJ-WORKER.workers.dev/?url=` a za ňu vlož *Vstup skratky*. Potom zdieľaš produkt cez túto skratku.
 - **Prepočet mien:** v nastaveniach zapneš zobrazenie ceny aj v druhej mene podľa kurzu ECB.
 
@@ -118,7 +117,7 @@ Bezpečnosť: na self-hosted runneri spúšťaj len vlastné workflowy. Repozit�
 
 Testy bežia nad lokálnymi kópiami stránok, ale e-shopy svoje stránky menia. Preto workflow *Kanárik* (`.github/workflows/canary.yml`) raz denne skontroluje známe produkty na skutočných obchodoch rovnakým kódom, aký používa appka, a overí, že cena aj mena dávajú zmysel.
 
-- Produkty sú v `scraper/canary.config.mjs`. Predvolene je tam hľadanie na Heureka.sk a Heureka.cz. **Doplň jeden dlhodobo predávaný produkt z každého obchodu, ktorý sleduješ.**
+- Produkty sú v `scraper/canary.config.mjs`. Predvolene je tam jeden produkt z Alza.sk. **Doplň jeden dlhodobo predávaný produkt z každého obchodu, ktorý sleduješ.**
 - Pri zlyhaní je beh červený (GitHub pošle e-mail), v behu je prehľadná tabuľka a na telefón príde notifikácia.
 - Ručne: Actions, Kanárik, Run workflow. Lokálne: `cd scraper && npm run canary`.
 
@@ -129,7 +128,7 @@ Pri každom pull requeste a po merge do `main` beží workflow **Testy** (`.gith
 | Job | Čo overuje | Ako |
 |---|---|---|
 | Worker API | autorizácia, pridávanie, ukladanie výsledkov, notifikácie (cieľ, prah, zdraženie, znova skladom, inde lacnejšie, opakované zlyhanie, kanárik), 30-dňové minimum a verdikt zľavy, história, mazanie, cron | `node:test` cez verejné `fetch`/`scheduled` Workera, skutočné migrácie nad vstavaným `node:sqlite`; falošné je len GitHub API |
-| Scraper | parsovanie cien (SK/CZ formáty, JSON-LD, AggregateOffer), dostupnosť, prečiarknutá cena, EAN a porovnanie na Heureke, výber najlacnejšieho výsledku, vyhodnotenie kanárika, celá kontrola v Chromiu | `node:test` + Playwright nad lokálnymi HTML fixtures (e-shop, JS e-shop, akcia, vypredaný produkt, Heureka vyhľadávanie a produkt, HTTP 403) |
+| Scraper | parsovanie cien (SK/CZ formáty, JSON-LD, AggregateOffer), dostupnosť, prečiarknutá cena, EAN, vyhodnotenie kanárika, celá kontrola v Chromiu | `node:test` + Playwright nad lokálnymi HTML fixtures (e-shop, JS e-shop, akcia, vypredaný produkt, HTTP 403) |
 | PWA E2E | zdieľanie do appky, upozornenia, falošné zľavy, vypredané produkty, inde lacnejšie, opakované zlyhanie, prvé spustenie, pridanie URL a názvu (SK/CZ), automatické doplnenie ceny, zoznam, prepočet mien, detail s grafom, CSS selektor, mazanie, deep link z notifikácie | `@playwright/test` na mobile (Pixel 7) aj desktope, API mockované falošným backendom v pamäti |
 
 Pri chybe E2E sa ako artefakt uloží HTML report a trace.
@@ -149,6 +148,5 @@ Worker lokálne: `cd worker && npx wrangler dev` (lokálnu D1 vytvoríš cez `np
 
 ## Obmedzenia
 
-- Heureka a niektoré e-shopy majú ochranu proti robotom. Ak kontrola zlyhá, produkt ukáže chybu a skúsi sa to znova o 5 hodín. Scraper chodí po stránkach pomaly a s pauzami.
-- Vyhľadávanie na Heureke používa heuristiku nezávislú od CSS tried, ale ak Heureka výrazne zmení stránku, treba upraviť `collectSearchResults` v `scraper/check.mjs`.
+- Niektoré e-shopy majú ochranu proti robotom. Ak kontrola zlyhá, produkt ukáže chybu a skúsi sa to znova o 5 hodín. Scraper chodí po stránkach pomaly a s pauzami.
 - Automatický scraping môže byť v rozpore s obchodnými podmienkami niektorých obchodov. Appka je určená na osobné použitie v malom rozsahu.

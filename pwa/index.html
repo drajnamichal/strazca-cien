@@ -47,18 +47,13 @@
         <form id="add-form" class="add">
           <div class="field">
             <svg class="field-icon" id="field-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
-            <label for="add-input" class="visually-hidden">URL alebo názov produktu</label>
+            <label for="add-input" class="visually-hidden">Odkaz na produkt</label>
             <input id="add-input" type="text" inputmode="url" autocomplete="off" enterkeyhint="go"
-                   placeholder="Odkaz na produkt alebo názov" required>
+                   placeholder="Odkaz na produkt z e-shopu" required>
             <button class="btn primary" type="submit">Sledovať</button>
           </div>
           <div class="add-row">
-            <fieldset class="market">
-              <legend class="visually-hidden">Trh pre hľadanie podľa názvu</legend>
-              <label><input type="radio" name="market" value="sk" checked><span>SK, €</span></label>
-              <label><input type="radio" name="market" value="cz"><span>CZ, Kč</span></label>
-            </fieldset>
-            <p class="hint" id="add-hint">Pri názve appka nájde najnižšiu cenu na Heureke a sleduje ju.</p>
+            <p class="hint" id="add-hint">Vlož odkaz na produkt z e-shopu.</p>
           </div>
           <p id="add-error" class="error" role="alert"></p>
         </form>
@@ -79,12 +74,8 @@
           <circle cx="24" cy="32" r="4.5" fill="currentColor" opacity=".35"/>
         </svg>
         <p>Zatiaľ nič nesleduješ.</p>
-        <p>Vlož odkaz z e-shopu alebo napíš názov produktu. Napríklad:</p>
-        <div class="examples">
-          <button class="chip" type="button" data-example="Sony WH-1000XM5">Sony WH-1000XM5</button>
-          <button class="chip" type="button" data-example="iPhone 16 128GB">iPhone 16 128GB</button>
-          <button class="chip" type="button" data-example="LEGO Technic 42115">LEGO Technic 42115</button>
-        </div>
+        <p>Otvor produkt v e-shope, skopíruj odkaz a vlož ho hore. Na Androide môžeš produkt rovno zdieľať do appky.</p>
+        <p>Nevieš, kde je najlacnejší? Napíš hore jeho názov a appka ti ponúkne hľadanie na Heureke.</p>
       </div>
     </main>
   </div>

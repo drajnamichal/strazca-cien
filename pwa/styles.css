@@ -107,6 +107,7 @@ button { font: inherit; color: inherit; }
 .field input::placeholder { color: var(--muted); font-weight: 400; }
 .add-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
 .hint { margin: 0; font-size: .8125rem; color: var(--muted); flex: 1 1 12rem; }
+.hint a { color: var(--ink); font-weight: 600; }
 
 .btn {
   font: 600 1rem/1 var(--body);
@@ -125,12 +126,6 @@ button { font: inherit; color: inherit; }
 .btn:disabled { opacity: .5; cursor: progress; }
 .field .btn { padding: .75rem 1.15rem; }
 
-.market { display: inline-flex; border: 0; margin: 0; padding: 3px; background: var(--surface); border-radius: 999px; box-shadow: 0 0 0 1px var(--line); }
-.market label { position: relative; }
-.market input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
-.market span { display: block; padding: .4rem .8rem; border-radius: 999px; font-weight: 600; font-size: .875rem; color: var(--muted); transition: background .2s, color .2s; }
-.market input:checked + span { background: var(--ink); color: var(--shelf); }
-.market input:focus-visible + span { outline: 3px solid var(--focus); }
 
 /* ---------- zoznam ---------- */
 main.wrap { padding-bottom: 3rem; }
@@ -251,17 +246,6 @@ img.thumb { background: oklch(1 0 0); padding: 4px; box-shadow: inset 0 0 0 1px 
 .empty-state svg { width: 7rem; height: auto; margin-bottom: 1rem; }
 .empty-state p { margin: 0 auto .4rem; max-width: 26rem; color: var(--muted); }
 .empty-state p:first-of-type { font: 600 1.5rem/1.2 var(--display); color: var(--ink); }
-.examples { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; margin-top: 1.1rem; }
-.chip {
-  border: 0; cursor: pointer;
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
-  border-radius: 999px;
-  padding: .55rem .9rem;
-  font-weight: 500; font-size: .9rem;
-  transition: scale .15s var(--ease);
-}
-.chip:active { scale: .95; }
 
 /* ---------- panely (dialog) ---------- */
 .sheet {
@@ -417,8 +401,3 @@ details.advanced input {
 }
 .alerts input[type="text"]:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .small { font-size: .8125rem; margin: 0; }
-.badge.info { color: var(--focus); background: color-mix(in oklch, var(--focus) 12%, transparent); }
-.elsewhere { border-radius: 14px; padding: .9rem 1rem; margin: 0 0 1.25rem; background: color-mix(in oklch, var(--focus) 10%, transparent); }
-.elsewhere h3 { font: 600 1.15rem/1.2 var(--display); margin: 0 0 .3rem; color: var(--focus); }
-.elsewhere p { margin: 0 0 .75rem; }
-.elsewhere .link-btn { background: var(--surface); }

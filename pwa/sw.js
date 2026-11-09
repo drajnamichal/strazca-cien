@@ -1,5 +1,5 @@
 // Service worker: offline shell + Web Push
-const CACHE = 'strazca-cien-v4';
+const CACHE = 'strazca-cien-v5';
 const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon.svg'];
 
 self.addEventListener('install', (e) => {
