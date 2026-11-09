@@ -119,6 +119,27 @@ test.describe('zoznam', () => {
     await expect(row(page, 'Nad minimom')).not.toContainText('najnižšia doteraz');
   });
 
+  test('každý riadok má porovnanie na Heureke bez otvárania detailu', async ({ app: { page, backend } }) => {
+    backend.seed({ name: 'Sony WH-1000XM5', prices: [299] });
+    backend.seed({ name: 'Apple iPhone 15', currency: 'CZK', prices: [16990] });
+    await page.goto('/');
+
+    const sony = row(page, 'Sony').getByRole('link', { name: 'Porovnať ceny na Heureke: Sony WH-1000XM5' });
+    await expect(sony).toHaveAttribute('href', 'https://www.heureka.sk/?h%5Bfraze%5D=Sony%20WH-1000XM5');
+    await expect(sony).toHaveAttribute('target', '_blank');
+    await expect(row(page, 'Apple iPhone 15').getByRole('link', { name: /Porovnať ceny na Heureke/ })).toHaveAttribute(
+      'href',
+      'https://www.heureka.cz/?h%5Bfraze%5D=Apple%20iPhone%2015',
+    );
+
+    // klik na odkaz otvorí Heureku v novej karte, nie detail produktu
+    const popup = page.waitForEvent('popup');
+    await page.context().route('https://www.heureka.sk/**', (route) => route.fulfill({ body: 'heureka' }));
+    await sony.click();
+    await (await popup).close();
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
+
   test('stránka sa nikdy neposúva do strany, ani s dlhými názvami', async ({ app: { page, backend } }) => {
     backend.seed({
       name: 'Veľmi dlhý názov produktu Samsung Galaxy S25 Ultra 512GB Titanium Silverblue s darčekom',

@@ -188,7 +188,8 @@ function renderList() {
       const cur = currencyOf(p);
       const conv = convertedText(p.current_price, cur);
       const pending = p.status === 'pending' && p.current_price == null;
-      return `<li><button class="item" type="button" data-id="${p.id}">
+      const label = p.name || p.input;
+      return `<li class="row"><button class="item" type="button" data-id="${p.id}">
         ${thumbHtml(p)}
         <span class="item-name">${esc(p.name || p.input)}</span>
         <span class="item-main">
@@ -201,7 +202,10 @@ function renderList() {
           ${deltaHtml(p)}
           ${conv ? `<span class="converted">${conv}</span>` : ''}
         </span>
-      </button></li>`;
+      </button>
+      <a class="heureka-link" href="${esc(heurekaSearchUrl(label, cur))}" target="_blank" rel="noopener"
+         aria-label="Porovnať ceny na Heureke: ${esc(label)}">Heureka <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
+    </li>`;
     })
     .join('');
 }

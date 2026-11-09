@@ -401,3 +401,23 @@ details.advanced input {
 }
 .alerts input[type="text"]:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .small { font-size: .8125rem; margin: 0; }
+
+/* porovnanie na Heureke priamo v riadku zoznamu */
+.list > li.row { position: relative; }
+.item-right { padding-bottom: 2.1rem; }
+.heureka-link {
+  position: absolute;
+  right: 1rem;
+  bottom: .8rem;
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .78rem; font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--surface);
+  transition: color .15s, box-shadow .15s;
+}
+@media (hover: hover) { .heureka-link:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--muted); } }
+.heureka-link:active { scale: .96; }
