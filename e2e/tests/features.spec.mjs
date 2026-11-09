@@ -71,6 +71,7 @@ test.describe('cieľová cena a prah notifikácie', () => {
       min_change_pct: 5,
       notify_increase: false,
       notify_stock: true,
+      notify_promo: true,
     });
     await detail.getByRole('button', { name: 'Zavrieť' }).click();
     await expect(row(page, 'Sony')).toContainText(/cieľ 249,90\s€/);
@@ -191,5 +192,55 @@ test.describe('opakované zlyhanie', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Zavrieť' }).click();
     await row(page, 'Mixér').click();
     await expect(page.getByRole('dialog')).not.toContainText('po sebe');
+  });
+});
+
+test.describe('zľavové kódy', () => {
+  const geox = {
+    name: 'Geox Baltmoore',
+    shop: 'Eobuv.sk',
+    prices: [87.99],
+    promo: { code: 'SINGLE', percent: 20, price: 70.39, min_order: 75, valid_until: '2099-11-11' },
+  };
+
+  test('zoznam ukáže cenu s kódom popri hlavnej cene', async ({ app: { page, backend } }) => {
+    backend.seed(geox);
+    await page.goto('/');
+    const item = page.getByRole('listitem').filter({ hasText: 'Geox' });
+    await expect(item).toContainText(/87,99\s€/);
+    await expect(item).toContainText(/s kódom SINGLE: 70,39\s€/);
+  });
+
+  test('detail ukáže kód, cenu po zľave, podmienky a kód sa dá skopírovať', async ({ app: { page, backend }, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    backend.seed(geox);
+    await page.goto('/');
+    await page.getByRole('listitem').filter({ hasText: 'Geox' }).click();
+
+    const card = page.getByRole('region', { name: 'Zľavový kód' });
+    await expect(card).toContainText('SINGLE');
+    await expect(card).toContainText(/S kódom v košíku 70,39\s€ \(−20 %\)/);
+    await expect(card).toContainText(/Pri nákupe od 75,00\s€\. Platí do 11\. 11\. 2099\./);
+    await card.getByRole('button', { name: 'Kopírovať kód SINGLE' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Kód SINGLE skopírovaný' })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('SINGLE');
+  });
+
+  test('bez kódu sa nič neukazuje', async ({ app: { page, backend } }) => {
+    backend.seed({ name: 'Mixér', prices: [49] });
+    await page.goto('/');
+    await expect(page.getByRole('listitem').filter({ hasText: 'Mixér' })).not.toContainText('s kódom');
+    await page.getByRole('listitem').filter({ hasText: 'Mixér' }).click();
+    await expect(page.getByRole('region', { name: 'Zľavový kód' })).toHaveCount(0);
+  });
+
+  test('upozornenie na nové kódy sa dá vypnúť', async ({ app: { page, backend } }) => {
+    const p = backend.seed(geox);
+    await page.goto('/');
+    await page.getByRole('listitem').filter({ hasText: 'Geox' }).click();
+    await page.getByRole('dialog').getByLabel('Upozorniť na nové zľavové kódy').uncheck();
+    await page.getByRole('dialog').getByRole('button', { name: 'Uložiť upozornenia' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Upozornenia uložené' })).toBeVisible();
+    expect(backend.calls('PATCH', `/api/products/${p.id}`)[0].body.notify_promo).toBe(false);
   });
 });

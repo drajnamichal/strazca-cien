@@ -431,3 +431,60 @@ test('interné upozornenie vráti notifikáciu a zariadenia na doručenie', asyn
   assert.deepEqual(body.subscriptions.map((s) => s.endpoint), ['https://push.test/k']);
   assert.equal((await call('POST', '/api/internal/alert', {})).status, 400);
 });
+
+// ---------- zľavové kódy ----------
+
+const SINGLE = { code: 'SINGLE', percent: 20, price: 70.39, min_order: 75, valid_until: '2099-11-11' };
+
+test('zľavový kód sa uloží popri hlavnej cene a vráti v zozname', async () => {
+  const id = (await add('https://www.eobuv.sk/geox')).body.product.id;
+  await report([{ id, ok: true, price: 87.99, promo: SINGLE }]);
+  const p = await product(id);
+  assert.equal(p.current_price, 87.99, 'hlavná cena zostáva');
+  assert.deepEqual(p.promo, SINGLE);
+  assert.equal(p.promo_json, undefined, 'surový JSON sa von neposiela');
+});
+
+test('nový kód upozorní, rovnaký kód znova nie, iný kód áno', async () => {
+  const id = (await add('https://www.eobuv.sk/geox')).body.product.id;
+  await subscribe();
+  await report([{ id, ok: true, price: 87.99, name: 'Geox Baltmoore', shop: 'Eobuv.sk', promo: null }]);
+
+  const first = (await report([{ id, ok: true, price: 87.99, promo: SINGLE }])).body.notifications;
+  assert.equal(first.length, 1);
+  assert.match(first[0].title, /Zľavový kód: Geox Baltmoore/);
+  assert.match(first[0].body, /SINGLE −20 %: 70,39\s€ \(min\. nákup 75,00\s€, platí do 11\. 11\.\)/);
+  assert.equal(first[0].tag, `promo-${id}`);
+
+  assert.equal((await report([{ id, ok: true, price: 87.99, promo: SINGLE }])).body.notifications.length, 0);
+  const other = { ...SINGLE, code: 'BLACK', percent: 25, price: 65.99 };
+  assert.equal((await report([{ id, ok: true, price: 87.99, promo: other }])).body.notifications.length, 1);
+});
+
+test('kód pri prvej kontrole neupozorní a upozornenie sa dá vypnúť', async () => {
+  const id = (await add('https://www.eobuv.sk/geox')).body.product.id;
+  await subscribe();
+  assert.equal((await report([{ id, ok: true, price: 87.99, promo: SINGLE }])).body.notifications.length, 0);
+
+  const b = (await add('https://www.eobuv.sk/b')).body.product.id;
+  await call('PATCH', `/api/products/${b}`, { notify_promo: false });
+  await report([{ id: b, ok: true, price: 87.99, promo: null }]);
+  assert.equal((await report([{ id: b, ok: true, price: 87.99, promo: SINGLE }])).body.notifications.length, 0);
+  assert.equal((await product(b)).notify_promo, 0);
+});
+
+test('keď kód zmizne alebo mu skončí platnosť, v zozname nie je', async () => {
+  const id = (await add('https://www.eobuv.sk/geox')).body.product.id;
+  await report([{ id, ok: true, price: 87.99, promo: SINGLE }]);
+  await report([{ id, ok: true, price: 87.99, promo: null }]);
+  assert.equal((await product(id)).promo, null);
+
+  await report([{ id, ok: true, price: 87.99, promo: { ...SINGLE, valid_until: '2020-01-01' } }]);
+  assert.equal((await product(id)).promo, null);
+});
+
+test('neplatné údaje o kóde sa ignorujú', async () => {
+  const id = (await add('https://www.eobuv.sk/geox')).body.product.id;
+  await report([{ id, ok: true, price: 87.99, promo: { code: '<script>', percent: 'veľa', price: 1 } }]);
+  assert.equal((await product(id)).promo, null);
+});

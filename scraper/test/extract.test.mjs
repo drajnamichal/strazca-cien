@@ -141,3 +141,48 @@ test('EAN z JSON-LD: gtin13, gtin, číslo aj text, neplatné ignoruje', () => {
   assert.equal(ean({}), null);
   assert.equal(extractPrice(raw({ jsonLd: [JSON.stringify({ '@type': 'Product', gtin13: '5901234123457', offers: { price: 5 } })] }), 'https://x.sk').ean, '5901234123457');
 });
+
+// ---------- zľavové kódy ----------
+import { extractPromo } from '../extract.mjs';
+
+const NOW = new Date('2026-11-09T10:00:00Z');
+const eobuv = [
+  'extra -20% Kód: SINGLE · Platí do 11 . 11',
+  "extra -20% Kód: SINGLE · Platí do 11 . 11 SINGLES' DAY Extra -20% zľava na nákup tohto produktu, pri nákupe za min. 75 € v košíku SINGLE Ďalšie produkty v akcii",
+];
+
+test('rozpozná kód, percento, minimálny nákup a platnosť (eobuv.sk)', () => {
+  assert.deepEqual(extractPromo(eobuv, 87.99, 'EUR', NOW), {
+    code: 'SINGLE',
+    percent: 20,
+    price: 70.39,
+    min_order: 75,
+    valid_until: '2026-11-11',
+  });
+});
+
+test('rôzne zápisy kódu a meny', () => {
+  const r = extractPromo(['Zadajte kupón LETO15 a získajte zľavu 15 % na celý nákup nad 1 000 Kč'], 2000, 'CZK', NOW);
+  assert.equal(r.code, 'LETO15');
+  assert.equal(r.percent, 15);
+  assert.equal(r.price, 1700);
+  assert.equal(r.min_order, 1000);
+  assert.equal(r.valid_until, null);
+  assert.equal(extractPromo(['S kódom BLACK-FRIDAY ušetríte −25 %'], 100, 'EUR', NOW).code, 'BLACK-FRIDAY');
+});
+
+test('keď si nie je istý, nič nevráti', () => {
+  const none = (texts) => extractPromo(texts, 100, 'EUR', NOW);
+  assert.equal(none(['Najlepšia cena na trhu']), null, 'bez kódu');
+  assert.equal(none(['Kód: SINGLE']), null, 'bez percenta');
+  assert.equal(none(['Zľavový kód nájdete v e-maile, ušetríte 10 %']), null, 'bežné slovo nie je kód');
+  assert.equal(none(['Kód DOPRAVA10: zľava 10 % na dopravu']), null, 'kód na dopravu');
+  assert.equal(none(['Kód: MEGA -95 %']), null, 'nezmyselné percento');
+  assert.equal(none(['Kód: SINGLE -20 % Platí do 1. 11.']), null, 'kód už neplatí');
+  assert.equal(none([]), null);
+});
+
+test('platnosť cez koniec roka patrí do budúceho roka', () => {
+  const dec = new Date('2026-12-28T10:00:00Z');
+  assert.equal(extractPromo(['Kód: NEWYEAR -10 % platí do 3. 1.'], 100, 'EUR', dec).valid_until, '2027-01-03');
+});

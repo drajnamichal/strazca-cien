@@ -152,6 +152,7 @@ function isBelowTarget(p) {
 /** Jeden najdôležitejší štítok k produktu, inak mini-graf. */
 function badgeHtml(p) {
   if (p.in_stock === 0) return '<span class="badge out">vypredané</span>';
+  if (p.promo) return `<span class="badge promo">s kódom ${esc(p.promo.code)}: ${money(p.promo.price, currencyOf(p))}</span>`;
   const d = p.discount || {};
   if (d.verdict === 'fake') return '<span class="badge warn">falošná zľava</span>';
   if (d.verdict === 'misleading') return `<span class="badge warn">zľava len ${Math.max(d.realPct, 0)} %</span>`;
@@ -348,6 +349,27 @@ function discountHtml(p) {
     </section>`;
 }
 
+function promoHtml(p) {
+  const promo = p.promo;
+  if (!promo) return '';
+  const cur = currencyOf(p);
+  const [y, m, d] = (promo.valid_until || '').split('-').map(Number);
+  const conditions = [
+    promo.min_order ? `Pri nákupe od ${money(promo.min_order, cur)}.` : null,
+    promo.valid_until ? `Platí do ${d}. ${m}. ${y}.` : null,
+  ].filter(Boolean);
+  return `<section class="promo" aria-labelledby="promo-title">
+      <h3 id="promo-title">Zľavový kód</h3>
+      <div class="promo-code">
+        <code>${esc(promo.code)}</code>
+        <button class="btn" type="button" data-copy="${esc(promo.code)}" aria-label="Kopírovať kód ${esc(promo.code)}">Kopírovať</button>
+      </div>
+      <p>S kódom v košíku ${money(promo.price, cur)} (−${promo.percent} %).</p>
+      ${conditions.length ? `<p class="muted small">${conditions.join(' ')}</p>` : ''}
+      <p class="muted small">Kód appka našla na stránke obchodu. Sledovaná cena zostáva bez kódu.</p>
+    </section>`;
+}
+
 function alertsHtml(p) {
   const symbol = currencyOf(p) === 'CZK' ? 'Kč' : '€';
   const fmt = (v) => (v == null ? '' : String(v));
@@ -365,6 +387,7 @@ function alertsHtml(p) {
         <p class="muted small">S cieľovou cenou upozorním len na pokles na cieľ alebo pod neho.</p>
         <label class="check"><input id="notify-increase" type="checkbox" ${p.notify_increase !== 0 ? 'checked' : ''}><span>Upozorniť aj na zdraženie</span></label>
         <label class="check"><input id="notify-stock" type="checkbox" ${p.notify_stock !== 0 ? 'checked' : ''}><span>Upozorniť, keď bude znova skladom</span></label>
+        <label class="check"><input id="notify-promo" type="checkbox" ${p.notify_promo !== 0 ? 'checked' : ''}><span>Upozorniť na nové zľavové kódy</span></label>
         <p id="alerts-error" class="error" role="alert"></p>
         <button class="btn primary" type="submit">Uložiť upozornenia</button>
       </form>
@@ -396,6 +419,7 @@ function detailHtml(p) {
     ${p.status === 'error' ? `<p class="detail-error">${esc(p.last_error)}${p.error_count >= 2 ? ` Zlyhalo ${p.error_count}× po sebe.` : ''}</p>` : ''}
     ${p.status === 'pending' ? `<p class="muted">${p.kind === 'query' ? 'Hľadám najnižšiu cenu…' : 'Zisťujem cenu…'}</p>` : ''}
     ${p.in_stock === 0 ? `<p class="stock-note">Momentálne vypredané.${p.notify_stock !== 0 ? ' Dám vedieť, keď bude znova skladom.' : ''}</p>` : ''}
+    ${promoHtml(p)}
     ${discountHtml(p)}
     <dl class="stats">
       <div><dt>Najnižšia</dt><dd>${money(p.min_price, cur)}</dd></div>
@@ -456,6 +480,15 @@ async function openDetail(id, sourceTag = null) {
       toast(err.message);
     }
   });
+  $('[data-copy]', dlg)?.addEventListener('click', async (e) => {
+    const code = e.currentTarget.dataset.copy;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast(`Kód ${code} skopírovaný.`);
+    } catch {
+      toast(`Kód: ${code}`);
+    }
+  });
   $('#alerts-form', dlg).addEventListener('submit', async (e) => {
     e.preventDefault();
     const num = (sel) => {
@@ -467,6 +500,7 @@ async function openDetail(id, sourceTag = null) {
       min_change_pct: num('#min-change'),
       notify_increase: $('#notify-increase', dlg).checked,
       notify_stock: $('#notify-stock', dlg).checked,
+      notify_promo: $('#notify-promo', dlg).checked,
     };
     if (Number.isNaN(body.target_price) || Number.isNaN(body.min_change_pct)) {
       $('#alerts-error', dlg).textContent = 'Zadaj číslo, napríklad 249,90.';

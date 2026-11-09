@@ -37,6 +37,8 @@ export class FakeBackend {
       in_stock: null,
       list_price: null,
       ean: null,
+      promo: null,
+      notify_promo: 1,
       error_count: 0,
       shop: 'shop.test',
       currency,
@@ -113,7 +115,7 @@ export class FakeBackend {
     if (m && method === 'PATCH') {
       const p = this.products.find((x) => x.id === Number(m[1]));
       const changes = { ...body };
-      for (const k of ['notify_increase', 'notify_stock']) if (k in changes) changes[k] = changes[k] ? 1 : 0;
+      for (const k of ['notify_increase', 'notify_stock', 'notify_promo']) if (k in changes) changes[k] = changes[k] ? 1 : 0;
       if ('selector' in body) Object.assign(changes, { status: 'pending', last_error: null });
       Object.assign(p, changes);
       return reply({ product: p, dispatch: 'selector' in body ? { ok: true } : null });

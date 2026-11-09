@@ -1,7 +1,7 @@
 // Práca s prehliadačom: načítanie stránky, zber údajov, vyhľadávanie na Heureke.
 // Oddelené od check.mjs, aby sa to dalo testovať na lokálnych HTML fixtures.
 import { chromium } from 'playwright';
-import { extractPrice } from './extract.mjs';
+import { extractPrice, extractPromo } from './extract.mjs';
 
 
 /** Nastavenia, ktoré si testy môžu zmeniť (napr. bez čakania pri opakovaní). */
@@ -110,6 +110,14 @@ export function collectPageData(selector) {
     ]
       .slice(0, 15)
       .map((el) => el.textContent.trim().slice(0, 60)),
+    // krátke bloky s kódom/kupónom: kandidáti na zľavový kód (rozpozná extractPromo)
+    promoTexts: [
+      ...new Set(
+        [...document.querySelectorAll('div, section, aside, p, li, span, strong, b')]
+          .map((el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim())
+          .filter((t) => t.length >= 8 && t.length <= 500 && /k[óo]d|kup[óo]n|code/i.test(t)),
+      ),
+    ].slice(0, 30),
     title: document.title,
   };
 }
@@ -138,6 +146,7 @@ export async function checkProduct(context, product) {
       currency: data.currency,
       in_stock: data.inStock ?? null,
       list_price: data.listPrice ?? null,
+      promo: data.price != null ? extractPromo(raw.promoTexts, data.price, data.currency) : null,
       name: data.name ? data.name.slice(0, 200) : null,
       image: data.image || null,
       shop: data.shop,

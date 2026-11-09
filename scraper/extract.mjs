@@ -207,3 +207,63 @@ export function parseEcbCzk(xml) {
   const m = String(xml || '').match(/currency=['"]CZK['"]\s+rate=['"]([\d.]+)['"]/);
   return m ? Number(m[1]) : null;
 }
+
+// ---------- zľavové kódy ----------
+
+const CODE_RE =
+  /(?:[Kk][óoÓO][Dd](?:om|u|e)?|[Kk]up[óo]n(?:om|u)?|[Cc]ode)\s*[:„"'“]?\s*([A-Z0-9][A-Z0-9_-]{1,18}[A-Z0-9])(?![A-Za-z0-9áäčďéíĺľňóôŕšťúýžÁÄČĎÉÍĹĽŇÓÔŔŠŤÚÝŽ])/;
+const PERCENT_RES = [
+  /[-−–]\s?(\d{1,2})\s?%/,
+  /(?:zľav\w*|zlav\w*|slev\w*|ušetr\w*|extra)\s*[-−–]?\s?(\d{1,2})\s?%/i,
+  /(\d{1,2})\s?%\s*(?:zľav|zlav|slev)/i,
+];
+const MIN_ORDER_RE =
+  /(?:min(?:\.|imáln\w*)?|nad|od)\s*(?:nákup\w*\s*)?(?:za\s*|v hodnote\s*)?(\d[\d\s]*(?:[,.]\d+)?)\s*(?:€|Kč|EUR|CZK)/i;
+const VALID_RE = /plat[íi]\s+do\s+(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?(?:\s*(\d{4}))?/i;
+const SHIPPING_RE = /doprav|poštovn|shipping/i;
+
+const pad = (n) => String(n).padStart(2, '0');
+
+function validUntil(text, now) {
+  const m = text.match(VALID_RE);
+  if (!m) return null;
+  const [, day, month, year] = m;
+  let y = year ? Number(year) : now.getUTCFullYear();
+  let iso = `${y}-${pad(month)}-${pad(day)}`;
+  const today = now.toISOString().slice(0, 10);
+  // dátum bez roka, ktorý je dávno za nami (napr. 3. 1. koncom decembra), patrí do budúceho roka
+  if (!year && Date.parse(iso) < now.getTime() - 60 * 86_400_000) iso = `${y + 1}-${pad(month)}-${pad(day)}`;
+  return iso < today ? 'expired' : iso;
+}
+
+/**
+ * Zľavový kód z textov akciových blokov na stránke.
+ * Vráti { code, percent, price, min_order, valid_until } alebo null, keď si nie je istý
+ * (chýba kód alebo percento, ide o dopravu, nezmyselná zľava, kód už neplatí).
+ */
+export function extractPromo(texts, price, currency, now = new Date()) {
+  if (!(price > 0) || !texts?.length) return null;
+  const sorted = [...texts].map(String).sort((a, b) => a.length - b.length);
+
+  for (const text of sorted) {
+    const code = text.match(CODE_RE)?.[1];
+    if (!code || !/[A-Z]/.test(code) || SHIPPING_RE.test(text)) continue;
+    const percent = PERCENT_RES.map((re) => text.match(re)?.[1]).find(Boolean);
+    if (!percent || Number(percent) < 1 || Number(percent) > 90) continue;
+
+    // podmienky hľadáme v najväčšom bloku s rovnakým kódom (banner + popis akcie)
+    const context = sorted.filter((t) => t.includes(code)).at(-1);
+    const valid = validUntil(context, now);
+    if (valid === 'expired') return null;
+    const minOrder = context.match(MIN_ORDER_RE)?.[1];
+
+    return {
+      code,
+      percent: Number(percent),
+      price: Math.round(price * (1 - Number(percent) / 100) * 100) / 100,
+      min_order: minOrder ? parsePrice(minOrder) : null,
+      valid_until: valid,
+    };
+  }
+  return null;
+}

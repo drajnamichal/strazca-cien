@@ -192,3 +192,22 @@ test('EAN zo stránky obchodu sa pošle ďalej (pre odkaz na Heureku v appke)', 
   assert.equal(r.price, 299);
   assert.deepEqual(requests, ['https://www.alza.sk/sony'], 'žiadna iná stránka sa neotvára');
 });
+
+// ---------- zľavové kódy ----------
+
+test('na stránke s akciou rozpozná zľavový kód a cenu po zľave', async () => {
+  await serve({ 'https://www.eobuv.sk/geox': 'shop-promo.html' });
+  const r = await checkProduct(context, urlProduct('https://www.eobuv.sk/geox'));
+  assert.equal(r.price, 87.99, 'hlavná sledovaná cena sa nemení');
+  assert.equal(r.promo.code, 'SINGLE');
+  assert.equal(r.promo.percent, 20);
+  assert.equal(r.promo.price, 70.39);
+  assert.equal(r.promo.min_order, 75);
+  assert.match(r.promo.valid_until, /^\d{4}-11-11$/);
+});
+
+test('stránka bez kódu vráti promo null', async () => {
+  await serve({ 'https://shop.test/sony': 'shop-jsonld.html' });
+  const r = await checkProduct(context, urlProduct('https://shop.test/sony'));
+  assert.equal(r.promo, null);
+});

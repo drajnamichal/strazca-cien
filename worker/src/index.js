@@ -87,8 +87,11 @@ async function listProducts(env) {
   const products = results.map((p) => {
     const history = historyOf.get(p.id) || [];
     const { priorLow, days } = priorLow30(history);
+    const { promo_json, ...rest } = p;
+    const promo = promo_json ? JSON.parse(promo_json) : null;
     return {
-      ...p,
+      ...rest,
+      promo: isPromoActive(promo) ? promo : null,
       recent_prices: history.slice(-12).map((h) => h.price),
       prior_low_30d: priorLow,
       history_days: days,
@@ -162,7 +165,7 @@ async function updateProduct(request, env, id) {
     sets.push('min_change_pct = ?');
     values.push(r.value || null);
   }
-  for (const key of ['notify_increase', 'notify_stock']) {
+  for (const key of ['notify_increase', 'notify_stock', 'notify_promo']) {
     if (key in body) {
       sets.push(`${key} = ?`);
       values.push(body[key] ? 1 : 0);
@@ -221,6 +224,36 @@ async function jobs(env, url) {
     : env.DB.prepare('SELECT * FROM products');
   const { results } = await stmt.all();
   return json({ products: results });
+}
+
+/** Overí údaje o zľavovom kóde zo scrapera; neplatné zahodí. */
+function cleanPromo(promo) {
+  if (!promo || typeof promo !== 'object') return null;
+  const { code, percent, price, min_order, valid_until } = promo;
+  if (typeof code !== 'string' || !/^[A-Z0-9][A-Z0-9_-]{1,18}[A-Z0-9]$/.test(code)) return null;
+  if (!(percent >= 1 && percent <= 90) || !(price > 0)) return null;
+  return {
+    code,
+    percent: Number(percent),
+    price: Math.round(price * 100) / 100,
+    min_order: min_order > 0 ? Number(min_order) : null,
+    valid_until: typeof valid_until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valid_until) ? valid_until : null,
+  };
+}
+
+const isPromoActive = (promo) => !!promo && (!promo.valid_until || promo.valid_until >= nowIso().slice(0, 10));
+
+function promoNotification(p, name, promo, currency) {
+  const conditions = [
+    promo.min_order ? `min. nákup ${formatMoney(promo.min_order, currency)}` : null,
+    promo.valid_until ? `platí do ${Number(promo.valid_until.slice(8))}. ${Number(promo.valid_until.slice(5, 7))}.` : null,
+  ].filter(Boolean);
+  return {
+    title: `Zľavový kód: ${name}`.slice(0, 120),
+    body: `${promo.code} −${promo.percent} %: ${formatMoney(promo.price, currency)}${conditions.length ? ` (${conditions.join(', ')})` : ''}`,
+    url: `/#p-${p.id}`,
+    tag: `promo-${p.id}`,
+  };
 }
 
 function priceChangeNotification(p, name, shop, oldPrice, price, currency, reason) {
@@ -307,16 +340,28 @@ async function saveResults(request, env) {
       }
     }
 
+    // zľavový kód: chýbajúci kľúč = nezisťovalo sa, null = na stránke nie je
+    const oldPromo = p.promo_json ? JSON.parse(p.promo_json) : null;
+    const promo = 'promo' in r ? cleanPromo(r.promo) : oldPromo;
+    if (
+      p.notify_promo &&
+      p.current_price != null &&
+      isPromoActive(promo) &&
+      (!isPromoActive(oldPromo) || oldPromo.code !== promo.code)
+    ) {
+      notifications.push(promoNotification(p, name, promo, currency));
+    }
+
     statements.push(
       env.DB.prepare(
         `UPDATE products SET current_price = ?, currency = ?, name = COALESCE(?, name),
            image = COALESCE(?, image), shop = COALESCE(?, shop), track_url = COALESCE(?, track_url),
            in_stock = COALESCE(?, in_stock), list_price = ?, last_notified_price = ?,
-           ean = COALESCE(?, ean),
+           ean = COALESCE(?, ean), promo_json = ?,
            status = 'ok', last_error = NULL, error_count = 0, last_checked = ? WHERE id = ?`,
       ).bind(
         price, currency, r.name || null, r.image || null, r.shop || null, r.track_url || null,
-        stock, listPrice, lastNotified, r.ean || null, checkedAt, p.id,
+        stock, listPrice, lastNotified, r.ean || null, promo ? JSON.stringify(promo) : null, checkedAt, p.id,
       ),
     );
     if (changed) {
