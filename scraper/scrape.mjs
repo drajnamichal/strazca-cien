@@ -1,29 +1,70 @@
 // Práca s prehliadačom: načítanie stránky, zber údajov, vyhľadávanie na Heureke.
 // Oddelené od check.mjs, aby sa to dalo testovať na lokálnych HTML fixtures.
+import { chromium } from 'playwright';
 import { extractPrice, extractFromJsonLd, parsePrice, pickCheapest, hostOf } from './extract.mjs';
 
 export const HEUREKA = { sk: 'https://www.heureka.sk', cz: 'https://www.heureka.cz' };
+
+/** Nastavenia, ktoré si testy môžu zmeniť (napr. bez čakania pri opakovaní). */
+export const settings = { retryDelayMs: 12_000 };
+
+/**
+ * Plný Chromium v novom headless režime. Predvolený „headless shell“ sa dá
+ * rozpoznať omnoho ľahšie a ochrany proti robotom ho často blokujú.
+ */
+// Prepínač AutomationControlled skryje navigator.webdriver; plný Chromium má aj window.chrome.
+export function launchBrowser(options = {}) {
+  return chromium.launch({
+    channel: 'chromium',
+    args: ['--disable-blink-features=AutomationControlled'],
+    ...options,
+  });
+}
+
+/** User-Agent bežného Chrome na rovnakom systéme, na akom prehliadač naozaj beží. */
+export function userAgentFor(version, platform = process.platform) {
+  const major = String(version).split('.')[0];
+  const os =
+    platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7'
+    : platform === 'win32' ? 'Windows NT 10.0; Win64; x64'
+    : 'X11; Linux x86_64';
+  return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+}
 
 export async function createContext(browser) {
   const context = await browser.newContext({
     locale: 'sk-SK',
     timezoneId: 'Europe/Bratislava',
     viewport: { width: 1366, height: 900 },
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    userAgent: userAgentFor(browser.version()),
   });
-  // obrázky, fonty a videá netreba – kontrola je rýchlejšia
-  await context.route('**/*', (route) =>
-    ['image', 'media', 'font'].includes(route.request().resourceType()) ? route.abort() : route.fallback(),
-  );
+  // videá netreba; obrázky a fonty necháme, ich blokovanie je pre ochrany podozrivé
+  // a Accept-Language ako slovenský Chrome (locale nastaví len „sk-SK“)
+  await context.route('**/*', async (route) => {
+    if (route.request().resourceType() === 'media') return route.abort();
+    const headers = { ...(await route.request().allHeaders()), 'accept-language': ACCEPT_LANGUAGE };
+    return route.fallback({ headers });
+  });
   return context;
 }
 
+const ACCEPT_LANGUAGE = 'sk-SK,sk;q=0.9,cs;q=0.8,en;q=0.7';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isBlocked = (status) => status === 403 || status === 429;
+
 export async function open(page, url) {
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  let response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  if (isBlocked(response?.status())) {
+    // ochrana niekedy pustí na druhý pokus (napr. po nastavení cookies)
+    await sleep(settings.retryDelayMs + Math.random() * settings.retryDelayMs * 0.5);
+    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  }
   const status = response?.status() ?? 0;
-  if (status === 403 || status === 429) {
-    throw new Error(`Obchod zablokoval automatickú kontrolu (HTTP ${status}). Skúsi sa to znova pri ďalšej kontrole.`);
+  if (isBlocked(status)) {
+    const title = (await page.title().catch(() => '')).trim().slice(0, 80);
+    throw new Error(
+      `Obchod zablokoval automatickú kontrolu (HTTP ${status}${title ? `, stránka „${title}“` : ''}). Skúsi sa to znova pri ďalšej kontrole.`,
+    );
   }
   if (status >= 400) throw new Error(`Stránka vrátila HTTP ${status}.`);
   // dáme čas JS e-shopom vykresliť cenu
@@ -98,6 +139,9 @@ export function collectSearchResults() {
 /** Výsledky vyhľadávania na Heureke: [{ name, url, price, image }] */
 export async function searchItems(page, query, market) {
   const base = HEUREKA[market] || HEUREKA.sk;
+  // najprv titulná stránka (cookies, ako keď človek príde na web), potom hľadanie
+  await open(page, `${base}/`);
+  await sleep(800 + Math.random() * 1200);
   await open(page, `${base}/?h%5Bfraze%5D=${encodeURIComponent(query)}`);
 
   const fromDom = await page.evaluate(collectSearchResults);

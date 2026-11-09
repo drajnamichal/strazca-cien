@@ -2,8 +2,7 @@
 // Pri zlyhaní: červený beh v GitHube (e-mail od GitHubu), súhrn v behu a Web Push, ak je nastavené API.
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { chromium } from 'playwright';
-import { createContext, checkProduct } from './scrape.mjs';
+import { createContext, checkProduct, launchBrowser } from './scrape.mjs';
 import { evaluateCanary, canaryProduct, summaryMarkdown, alertText } from './canary-lib.mjs';
 import { createApi } from './api.mjs';
 import { sendPushes } from './push.mjs';
@@ -26,7 +25,7 @@ export async function runCanary(context, entries, { pause = 2000 } = {}) {
 
 async function main() {
   const { default: entries } = await import('./canary.config.mjs');
-  const browser = await chromium.launch();
+  const browser = await launchBrowser();
   const context = await createContext(browser);
   const rows = await runCanary(context, entries);
   await browser.close();

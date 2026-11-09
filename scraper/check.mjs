@@ -1,7 +1,6 @@
 // Scraper – beží v GitHub Actions (cron cez Cloudflare Worker každých 5 h alebo na požiadanie).
-import { chromium } from 'playwright';
 import { parseEcbCzk } from './extract.mjs';
-import { createContext, checkProduct } from './scrape.mjs';
+import { createContext, checkProduct, launchBrowser } from './scrape.mjs';
 import { createApi } from './api.mjs';
 import { sendPushes } from './push.mjs';
 
@@ -29,7 +28,7 @@ async function main() {
   console.log(`Kontrolujem ${products.length} produktov.`);
   if (!products.length) return;
 
-  const browser = await chromium.launch();
+  const browser = await launchBrowser();
   const context = await createContext(browser);
 
   const results = [];

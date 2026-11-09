@@ -3,8 +3,7 @@
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { chromium } from 'playwright';
-import { createContext, checkProduct } from '../scrape.mjs';
+import { createContext, checkProduct, launchBrowser, settings } from '../scrape.mjs';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -14,7 +13,8 @@ let requests;
 
 before(async () => {
   // CHROMIUM_PATH umožní spustiť testy s už nainštalovaným Chromom
-  browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+  browser = await launchBrowser({ executablePath: process.env.CHROMIUM_PATH || undefined });
+  settings.retryDelayMs = 0; // v testoch bez čakania
 });
 after(async () => {
   await browser?.close();
@@ -219,4 +219,77 @@ test('kanárik prejde skutočnou cestou scrapera a nahlási zlyhaný obchod', as
   );
   assert.deepEqual(rows.map((r) => r.ok), [true, false]);
   assert.match(rows[1].detail, /zablokoval/);
+});
+
+// ---------- menej nápadný prehliadač, opakovanie pri blokovaní ----------
+
+test('prehliadač sa neprezradí ako automatizovaný', async () => {
+  await serve({ 'https://shop.test/': 'shop-plain.html' });
+  const page = await context.newPage();
+  await page.goto('https://shop.test/');
+  const info = await page.evaluate(() => ({
+    webdriver: navigator.webdriver,
+    ua: navigator.userAgent,
+    languages: navigator.languages,
+    hasChrome: typeof window.chrome === 'object',
+  }));
+  await page.close();
+  assert.ok(!info.webdriver, 'navigator.webdriver nie je true');
+  assert.doesNotMatch(info.ua, /Headless/i);
+  assert.match(info.ua, /Chrome\/\d+/);
+  assert.equal(info.languages[0], 'sk-SK');
+  assert.ok(info.hasChrome, 'window.chrome existuje ako v bežnom Chrome');
+});
+
+test('posiela hlavičky ako bežný prehliadač po slovensky', async () => {
+  // skutočný lokálny server: vidí hlavičky tak, ako odídu do siete
+  const { createServer } = await import('node:http');
+  let headers;
+  const server = createServer((req, res) => {
+    headers = req.headers;
+    res.end('<title>ok</title>');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.close();
+  server.close();
+  assert.equal(headers['accept-language'], 'sk-SK,sk;q=0.9,cs;q=0.8,en;q=0.7');
+  assert.doesNotMatch(headers['user-agent'], /Headless/i);
+});
+
+test('pri jednorazovom 403 to skúsi znova a uspeje', async () => {
+  let calls = 0;
+  await context.route('https://shop.test/obcas', (route) => {
+    calls++;
+    return calls === 1
+      ? route.fulfill({ status: 403, contentType: 'text/html', body: '<title>Prístup odmietnutý</title>' })
+      : route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: fixture('shop-jsonld.html') });
+  });
+  const r = await checkProduct(context, urlProduct('https://shop.test/obcas'));
+  assert.equal(r.ok, true);
+  assert.equal(r.price, 299.9);
+  assert.equal(calls, 2);
+});
+
+test('trvalé blokovanie skončí chybou s nadpisom stránky pre diagnostiku', async () => {
+  await context.route('https://shop.test/stale', (route) =>
+    route.fulfill({ status: 403, contentType: 'text/html', body: '<title>Just a moment...</title>' }),
+  );
+  await assert.rejects(checkProduct(context, urlProduct('https://shop.test/stale')), (err) => {
+    assert.match(err.message, /zablokoval automatickú kontrolu \(HTTP 403/);
+    assert.match(err.message, /Just a moment/);
+    return true;
+  });
+});
+
+test('pred hľadaním na Heureke najprv otvorí jej titulnú stránku', async () => {
+  await serve({
+    'https://www.heureka.sk/*': 'heureka-search.html',
+    'https://mobilne-telefony.heureka.sk/apple-iphone-15-128gb/': 'heureka-product.html',
+  });
+  await checkProduct(context, queryProduct('iphone 15'));
+  const heureka = requests.filter((u) => u.startsWith('https://www.heureka.sk/'));
+  assert.equal(heureka[0], 'https://www.heureka.sk/');
+  assert.match(heureka[1], /h%5Bfraze%5D=iphone%2015/);
 });
